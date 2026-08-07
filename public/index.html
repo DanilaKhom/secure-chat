@@ -286,11 +286,12 @@ html,body{
         <div class="tabs">
           <button class="tab-btn active" id="tab-chats">Чаты</button>
           <button class="tab-btn" id="tab-friends">Друзья</button>
+          <button class="tab-btn" id="tab-search">Поиск</button>
         </div>
 
-        <div class="sb-search">
+        <div class="sb-search" id="search-box-wrap" style="display:none;margin-bottom:.5rem">
           <span class="ico">🔍</span>
-          <input id="search" type="text" placeholder="Поиск пользователей..." autocomplete="off"/>
+          <input id="search" type="text" placeholder="Поиск по никнейму..." autocomplete="off"/>
         </div>
       </div>
 
@@ -648,11 +649,16 @@ friendToggleBtn.onclick=async()=>{
   updateFriendToggleBtn();
 };
 
+const tabSearch=document.getElementById('tab-search');
+const searchBoxWrap=document.getElementById('search-box-wrap');
+
 // TABS SWITCHER
 tabChats.onclick=()=>{
   activeTab='chats';
   tabChats.classList.add('active');
   tabFriends.classList.remove('active');
+  tabSearch.classList.remove('active');
+  searchBoxWrap.style.display='none';
   searchEl.value='';
   listTitle.textContent='Чаты';
   loadRecent();
@@ -662,19 +668,30 @@ tabFriends.onclick=()=>{
   activeTab='friends';
   tabFriends.classList.add('active');
   tabChats.classList.remove('active');
+  tabSearch.classList.remove('active');
+  searchBoxWrap.style.display='none';
   searchEl.value='';
   listTitle.textContent='Друзья';
   renderFriendsList();
 };
 
-// SEARCH
-let sTimer;
-searchEl.onfocus=()=>{
+tabSearch.onclick=()=>{
+  activeTab='search';
+  tabSearch.classList.add('active');
+  tabChats.classList.remove('active');
+  tabFriends.classList.remove('active');
+  searchBoxWrap.style.display='block';
+  searchEl.value='';
+  listTitle.textContent='Все пользователи';
+  searchEl.focus();
   triggerSearch();
 };
+
+// SEARCH
+let sTimer;
 searchEl.oninput=()=>{
   clearTimeout(sTimer);
-  sTimer=setTimeout(triggerSearch, 200);
+  sTimer=setTimeout(triggerSearch, 150);
 };
 
 async function triggerSearch(){
