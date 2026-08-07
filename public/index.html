@@ -733,7 +733,7 @@ async function register(){
     // Try to login to check if user exists
     let res=await fetch('/api/register',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username,password,publicKey:'dummy',encryptedPrivKey:'dummy'}) // dummy for check
+      body:JSON.stringify({username,password}) // Omit keys for login check
     });
     
     let user=await res.json();
@@ -855,7 +855,7 @@ window.addEventListener('DOMContentLoaded',async ()=>{
         try{
           const res=await fetch('/api/register',{
             method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({username:u.username,password:spwd,publicKey:u.publicKey,encryptedPrivKey:'dummy'})
+            body:JSON.stringify({username:u.username,password:spwd})
           });
           if(res.ok){
             const upd=await res.json();
