@@ -877,6 +877,8 @@ async function loadFriends(){
     ]);
     myFriends=await resF.json();
     incomingRequests=await resR.json();
+    if(!Array.isArray(myFriends)) myFriends=[];
+    if(!Array.isArray(incomingRequests)) incomingRequests=[];
     if(activeTab==='friends' && (!searchEl.value || !searchEl.value.trim())){
       renderFriendsList();
     }
