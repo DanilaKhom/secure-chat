@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const { createClient } = require('@libsql/client');
+const webpush = require('web-push');
 require('dotenv').config();
 
 const cryptoModule = require('crypto');
@@ -14,6 +15,15 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
   maxHttpBufferSize: 1e7
 });
+
+// VAPID keys setup
+const publicVapidKey = process.env.VAPID_PUBLIC_KEY;
+const privateVapidKey = process.env.VAPID_PRIVATE_KEY;
+if (publicVapidKey && privateVapidKey) {
+  webpush.setVapidDetails('mailto:test@test.com', publicVapidKey, privateVapidKey);
+} else {
+  console.warn('WARNING: VAPID keys not set. Push notifications will not work.');
+}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -57,6 +67,14 @@ async function initDb() {
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(senderId, receiverId)
     );
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      endpoint TEXT NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      UNIQUE(userId, endpoint)
+    );
   `);
   
   try {
@@ -98,6 +116,26 @@ async function dbRun(sql, args = []) {
 app.post('/api/log', (req, res) => {
   console.log('CLIENT LOG:', req.body);
   res.json({ok:true});
+});
+
+app.get('/api/vapidPublicKey', (req, res) => {
+  res.json({ publicKey: publicVapidKey });
+});
+
+app.post('/api/subscribe', async (req, res) => {
+  const { userId, subscription } = req.body;
+  if (!userId || !subscription) return res.status(400).json({ error: 'Bad Request' });
+
+  try {
+    await dbRun(
+      'INSERT OR IGNORE INTO push_subscriptions (userId, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+      [userId, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth]
+    );
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error('Subscribe err:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/register', async (req, res) => {
@@ -153,6 +191,7 @@ app.post('/api/reset-account', async (req, res) => {
       await dbRun('DELETE FROM messages WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
       await dbRun('DELETE FROM friends WHERE userId = ? OR friendId = ?', [user.id, user.id]);
       await dbRun('DELETE FROM friend_requests WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
+      await dbRun('DELETE FROM push_subscriptions WHERE userId = ?', [user.id]);
       await dbRun('DELETE FROM users WHERE id = ?', [user.id]);
     }
     res.json({ success: true });
@@ -371,6 +410,33 @@ io.on('connection', (socket) => {
         }
       } else {
         console.log(`User ${receiverId} is offline — message saved to DB`);
+      }
+      
+      // Push notification
+      try {
+        if (publicVapidKey && privateVapidKey) {
+          const senderUser = await dbGet('SELECT username FROM users WHERE id = ?', [senderId]);
+          const subs = await dbAll('SELECT * FROM push_subscriptions WHERE userId = ?', [receiverId]);
+          const payload = JSON.stringify({
+            title: 'Новое сообщение',
+            body: `Вам написал ${senderUser ? senderUser.username : 'кто-то'}`,
+            icon: '/icon.png'
+          });
+          
+          for (const sub of subs) {
+            const pushConfig = {
+              endpoint: sub.endpoint,
+              keys: { p256dh: sub.p256dh, auth: sub.auth }
+            };
+            webpush.sendNotification(pushConfig, payload).catch(async (err) => {
+              if (err.statusCode === 410 || err.statusCode === 404) {
+                await dbRun('DELETE FROM push_subscriptions WHERE id = ?', [sub.id]);
+              }
+            });
+          }
+        }
+      } catch (pushErr) {
+        console.error('Push error:', pushErr);
       }
 
       // Confirm to sender

@@ -4,6 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
 <title>SecureChat — Minimal</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0e1621">
+<link rel="apple-touch-icon" href="/icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <style>
@@ -524,9 +527,42 @@ function playNotifySound(){
   }catch(e){}
 }
 
-function requestNotifyPermission(){
-  if('Notification' in window && Notification.permission==='default'){
-    Notification.requestPermission().catch(()=>{});
+function urlB64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function requestNotifyPermission(){
+  if('Notification' in window){
+    const perm = await Notification.requestPermission();
+    if(perm === 'granted' && 'serviceWorker' in navigator && me && me.id) {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        const res = await fetch('/api/vapidPublicKey');
+        const vapidData = await res.json();
+        
+        if (vapidData.publicKey) {
+          const subscription = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlB64ToUint8Array(vapidData.publicKey)
+          });
+          
+          await fetch('/api/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: me.id, subscription })
+          });
+        }
+      } catch (err) {
+        console.error('Push setup failed:', err);
+      }
+    }
   }
 }
 
