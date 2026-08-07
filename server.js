@@ -162,6 +162,23 @@ app.post('/api/friends/request', async (req, res) => {
   try {
     const existing = await dbGet('SELECT id FROM friends WHERE userId = ? AND friendId = ?', [senderId, receiverId]);
     if (existing) return res.status(400).json({ error: 'Already friends' });
+
+    // Check if the other user already sent a request to us
+    const reverseReq = await dbGet('SELECT id FROM friend_requests WHERE senderId = ? AND receiverId = ?', [receiverId, senderId]);
+    if (reverseReq) {
+      // Auto-accept!
+      await dbRun('DELETE FROM friend_requests WHERE senderId = ? AND receiverId = ?', [receiverId, senderId]);
+      await dbRun('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [senderId, receiverId]);
+      await dbRun('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [receiverId, senderId]);
+
+      const receiver = await dbGet('SELECT username FROM users WHERE id = ?', [receiverId]);
+      const sSockets = userSockets.get(String(senderId));
+      if (sSockets) {
+        for (const sid of sSockets) io.to(sid).emit('friend_accepted', { accepterId: senderId, accepterName: receiver.username });
+      }
+      return res.json({ success: true, accepted: true });
+    }
+
     await dbRun('INSERT OR IGNORE INTO friend_requests (senderId, receiverId) VALUES (?, ?)', [senderId, receiverId]);
 
     const sender = await dbGet('SELECT username FROM users WHERE id = ?', [senderId]);

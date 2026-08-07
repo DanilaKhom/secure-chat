@@ -916,14 +916,19 @@ async function rejectRequest(user){
 
 async function addFriend(user){
   try{
-    await fetch('/api/friends/request', {
+    const res = await fetch('/api/friends/request', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({senderId:me.id, receiverId:user.id})
     });
-    toast('Заявка отправлена');
-    if(peer && String(peer.id)===String(user.id)){
-      friendToggleBtn.textContent='⏳ Отправлено';
+    const data = await res.json();
+    if(data.accepted){
+      toast('Вы взаимно приняли заявку!');
+    } else {
+      toast('Заявка отправлена');
+      if(peer && String(peer.id)===String(user.id)){
+        friendToggleBtn.textContent='⏳ Отправлено';
+      }
     }
     await loadFriends();
     if(searchEl.value.trim()){
