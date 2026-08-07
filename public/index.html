@@ -749,7 +749,20 @@ async function register(){
         myPriv = privJwk;
         me = user;
       } catch(e) {
-        throw new Error('Ключ поврежден или неверный пароль (ошибка расшифровки: ' + e.message + ')');
+        // Send error to server for debugging
+        fetch('/api/log', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            name: e.name,
+            message: e.message,
+            stack: e.stack,
+            type: 'unwrap_error',
+            obj: user.encryptedPrivKey
+          })
+        }).catch(()=>{});
+        
+        throw new Error('Ключ поврежден или неверный пароль (ошибка: ' + e.name + ' - ' + e.message + ')');
       }
     } else {
       // New user registration

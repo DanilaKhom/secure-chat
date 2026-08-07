@@ -95,6 +95,11 @@ async function dbRun(sql, args = []) {
 
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
+app.post('/api/log', (req, res) => {
+  console.log('CLIENT LOG:', req.body);
+  res.json({ok:true});
+});
+
 app.post('/api/register', async (req, res) => {
   const { username, password, publicKey, encryptedPrivKey } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Заполните все поля (никнейм и пароль)' });
