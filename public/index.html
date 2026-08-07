@@ -201,6 +201,12 @@ html,body{
   background:var(--them-bubble);color:var(--them-text);
   border:1px solid var(--border);border-bottom-left-radius:2px;
 }
+.bubble-img{
+  max-width:100%;max-height:260px;border-radius:8px;
+  display:block;cursor:pointer;object-fit:cover;
+  transition:opacity .15s,transform .15s;
+}
+.bubble-img:hover{opacity:.95;transform:scale(1.01)}
 .mtime{font-size:.62rem;color:var(--muted);margin-top:.2rem;padding:0 .2rem}
 .mrow.me .mtime{text-align:right}
 
@@ -210,7 +216,35 @@ html,body{
   padding:.75rem 1rem;padding-bottom:max(.75rem, env(safe-area-inset-bottom));
   flex-shrink:0;
 }
+.img-preview-bar{
+  display:none;align-items:center;gap:.6rem;
+  padding:.4rem .8rem;background:var(--card);
+  border:1px solid var(--border);border-radius:8px;
+  margin-bottom:.5rem;
+}
+.img-preview-bar img{
+  width:40px;height:40px;object-fit:cover;
+  border-radius:6px;border:1px solid var(--border);
+}
+.img-preview-bar .img-info{
+  flex:1;font-size:.78rem;color:var(--muted);
+}
+.img-preview-bar .remove-img{
+  background:transparent;border:none;color:var(--muted);
+  cursor:pointer;font-size:1.1rem;padding:.2rem .4rem;
+  transition:color .15s;
+}
+.img-preview-bar .remove-img:hover{color:var(--text)}
+
 .input-row{display:flex;gap:.5rem;align-items:center}
+.attach-btn{
+  width:38px;height:38px;background:var(--card);border:1px solid var(--border);
+  border-radius:8px;color:var(--text);font-size:1.1rem;cursor:pointer;
+  flex-shrink:0;transition:border-color .15s,opacity .15s,transform .1s;
+  display:flex;align-items:center;justify-content:center;
+}
+.attach-btn:hover{border-color:var(--border-light);opacity:.9}
+.attach-btn:active{transform:scale(.95)}
 #msg-input{
   flex:1;background:var(--card);border:1px solid var(--border);
   border-radius:8px;padding:.65rem .9rem;color:var(--text);
@@ -226,6 +260,18 @@ html,body{
 }
 .send-btn:hover{opacity:.85}
 .send-btn:active{transform:scale(.95)}
+
+/* Image Modal */
+#img-modal{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,0.92);z-index:1000;
+  align-items:center;justify-content:center;
+  padding:1rem;cursor:zoom-out;
+}
+#img-modal img{
+  max-width:95vw;max-height:92vh;border-radius:8px;
+  box-shadow:0 0 40px rgba(0,0,0,0.9);object-fit:contain;
+}
 
 /* Toast */
 #toast{
@@ -330,7 +376,14 @@ html,body{
         </div>
 
         <div class="input-bar">
+          <input type="file" id="img-input" accept="image/*" style="display:none;"/>
+          <div class="img-preview-bar" id="img-preview-bar">
+            <img id="img-preview-thumb" alt="preview"/>
+            <div class="img-info" id="img-preview-info">Фото прикреплено</div>
+            <button class="remove-img" id="remove-img-btn" type="button" title="Удалить фото">✕</button>
+          </div>
           <div class="input-row">
+            <button class="attach-btn" id="attach-btn" type="button" title="Прикрепить фото">📷</button>
             <input id="msg-input" type="text" placeholder="Написать..." autocomplete="off" enterkeyhint="send"/>
             <button class="send-btn" id="send-btn">↑</button>
           </div>
@@ -339,6 +392,10 @@ html,body{
     </div>
 
   </div>
+</div>
+
+<div id="img-modal">
+  <img id="img-modal-target" alt="full size"/>
 </div>
 
 <div id="toast"></div>
@@ -384,14 +441,84 @@ async function dec(payload,privJwk){
 }
 
 // ═══════════════════════════════════════
-// STATE
+// NOTIFICATIONS & AUDIO
+// ═══════════════════════════════════════
+let audioCtx=null;
+function playNotifySound(){
+  try{
+    if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    osc.type='sine';
+    osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.08); // A5
+    gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.3);
+  }catch(e){}
+}
+
+function requestNotifyPermission(){
+  if('Notification' in window && Notification.permission==='default'){
+    Notification.requestPermission().catch(()=>{});
+  }
+}
+
+function showNotification(title,body){
+  playNotifySound();
+  if('Notification' in window && Notification.permission==='granted'){
+    try{
+      new Notification(title,{
+        body:body,
+        icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="%23000"/><text x="50" y="65" font-size="45" text-anchor="middle" fill="%23fff">🔒</text></svg>'
+      });
+    }catch(e){}
+  }
+}
+
+// ═══════════════════════════════════════
+// IMAGE COMPRESSION
+// ═══════════════════════════════════════
+function compressImage(file, maxDimension=1000, quality=0.8){
+  return new Promise((resolve, reject)=>{
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.width, h=img.height;
+        if(w>h){
+          if(w>maxDimension){ h=Math.round((h*maxDimension)/w); w=maxDimension; }
+        } else {
+          if(h>maxDimension){ w=Math.round((w*maxDimension)/h); h=maxDimension; }
+        }
+        const canvas=document.createElement('canvas');
+        canvas.width=w;
+        canvas.height=h;
+        const ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      img.onerror=reject;
+      img.src=e.target.result;
+    };
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ═══════════════════════════════════════
+// STATE & DOM
 // ═══════════════════════════════════════
 let me=null,myPriv=null,socket=null,peer=null;
-let activeTab='chats'; // 'chats' | 'friends'
+let activeTab='chats'; // 'chats' | 'friends' | 'search'
 let myFriends=[];     // list of friend objects
 let pending={};       // senderId -> [{text,ts}]
+let selectedImageData=null;
 
-// DOM
 const loginEl=document.getElementById('login');
 const appEl=document.getElementById('app');
 const joinBtn=document.getElementById('join-btn');
@@ -402,6 +529,8 @@ const myAv=document.getElementById('my-av');
 const myName=document.getElementById('my-name');
 const tabChats=document.getElementById('tab-chats');
 const tabFriends=document.getElementById('tab-friends');
+const tabSearch=document.getElementById('tab-search');
+const searchBoxWrap=document.getElementById('search-box-wrap');
 const searchEl=document.getElementById('search');
 const listTitle=document.getElementById('list-title');
 const chatListEl=document.getElementById('chat-list');
@@ -417,6 +546,39 @@ const sendBtn=document.getElementById('send-btn');
 const backBtn=document.getElementById('back-btn');
 const sidebarEl=document.getElementById('sidebar');
 const toastEl=document.getElementById('toast');
+
+const imgInput=document.getElementById('img-input');
+const attachBtn=document.getElementById('attach-btn');
+const imgPreviewBar=document.getElementById('img-preview-bar');
+const imgPreviewThumb=document.getElementById('img-preview-thumb');
+const removeImgBtn=document.getElementById('remove-img-btn');
+const imgModal=document.getElementById('img-modal');
+const imgModalTarget=document.getElementById('img-modal-target');
+
+// Attach image handler
+attachBtn.onclick=()=>imgInput.click();
+imgInput.onchange=async(e)=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  toast('Сжатие фото...');
+  try{
+    selectedImageData=await compressImage(file, 1000, 0.8);
+    imgPreviewThumb.src=selectedImageData;
+    imgPreviewBar.style.display='flex';
+    msgInput.focus();
+  }catch(err){
+    toast('Ошибка обработки фото');
+    clearSelectedImage();
+  }
+};
+
+function clearSelectedImage(){
+  selectedImageData=null;
+  imgInput.value='';
+  imgPreviewBar.style.display='none';
+}
+removeImgBtn.onclick=clearSelectedImage;
+imgModal.onclick=()=>{imgModal.style.display='none';};
 
 // ═══════════════════════════════════════
 // TOAST
@@ -434,7 +596,16 @@ function tstr(ts){
   const d=ts?new Date(ts):new Date();
   return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
 }
-function addMsg(text,isMe,ts){
+
+function parseMsgPayload(raw){
+  if(typeof raw==='object' && raw!==null) return raw;
+  if(typeof raw==='string' && raw.startsWith('{')){
+    try{ return JSON.parse(raw); }catch(e){}
+  }
+  return { type:'text', data:raw };
+}
+
+function addMsg(rawContent,isMe,ts){
   msgsEmpty.style.display='none';
   const row=document.createElement('div');
   row.className='mrow '+(isMe?'me':'them');
@@ -442,9 +613,31 @@ function addMsg(text,isMe,ts){
   inner.style.display='flex';
   inner.style.flexDirection='column';
   inner.style.alignItems=isMe?'flex-end':'flex-start';
+
   const bub=document.createElement('div');
   bub.className='bubble';
-  bub.textContent=text;
+
+  const msgObj=parseMsgPayload(rawContent);
+
+  if(msgObj && msgObj.type==='image'){
+    const img=document.createElement('img');
+    img.className='bubble-img';
+    img.src=msgObj.data;
+    img.onclick=()=>{
+      imgModalTarget.src=msgObj.data;
+      imgModal.style.display='flex';
+    };
+    bub.appendChild(img);
+    if(msgObj.text){
+      const cap=document.createElement('div');
+      cap.style.marginTop='6px';
+      cap.textContent=msgObj.text;
+      bub.appendChild(cap);
+    }
+  }else{
+    bub.textContent=msgObj && msgObj.data!==undefined ? msgObj.data : String(rawContent);
+  }
+
   const time=document.createElement('div');
   time.className='mtime';
   time.textContent=tstr(ts);
@@ -478,6 +671,7 @@ async function register(){
     me=user; myPriv=keys.priv;
     localStorage.setItem('sc_u',JSON.stringify(user));
     localStorage.setItem('sc_p',JSON.stringify(keys.priv));
+    requestNotifyPermission();
     startApp();
   }catch(e){
     loginErr.textContent='Ошибка: '+e.message;
@@ -529,6 +723,7 @@ window.addEventListener('DOMContentLoaded',()=>{
         me=u;myPriv=JSON.parse(sp);
         fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({username:u.username,publicKey:u.publicKey})}).catch(()=>{});
+        requestNotifyPermission();
         startApp();
       }
     }
@@ -562,19 +757,40 @@ function connectSocket(){
   socket.on('disconnect',()=>toast('Соединение прервано'));
 
   socket.on('private_message',async msg=>{
-    let text='[Ошибка расшифровки]';
+    let decrypted='[Ошибка расшифровки]';
     try{
       const payload=JSON.parse(msg.encryptedContent);
-      text=await dec(payload,myPriv);
+      decrypted=await dec(payload,myPriv);
     }catch(e){console.error('dec err',e)}
 
+    const parsed=parseMsgPayload(decrypted);
+    let snippet='Новое сообщение';
+    if(parsed.type==='image'){
+      snippet='📷 Фотография'+(parsed.text?': '+parsed.text:'');
+    }else if(parsed.type==='text'){
+      snippet=parsed.data;
+    }else{
+      snippet=String(decrypted);
+    }
+
     const sid=String(msg.senderId);
-    if(peer&&String(peer.id)===sid){
-      addMsg(text,false,msg.timestamp);
+    const isCurrentChat=peer && String(peer.id)===sid;
+
+    if(isCurrentChat){
+      addMsg(decrypted,false,msg.timestamp);
+      if(document.hidden){
+        showNotification(peer.username, snippet);
+      }
     }else{
       if(!pending[sid])pending[sid]=[];
-      pending[sid].push({text,ts:msg.timestamp});
-      toast('💬 Новое сообщение');
+      pending[sid].push({text:decrypted,ts:msg.timestamp});
+      
+      let senderName='Пользователь #'+sid;
+      const found=myFriends.find(f=>String(f.id)===sid);
+      if(found) senderName=found.username;
+
+      showNotification(senderName, snippet);
+      toast('💬 '+senderName+': '+snippet);
       if(activeTab==='chats') loadRecent();
     }
   });
@@ -648,9 +864,6 @@ friendToggleBtn.onclick=async()=>{
   }
   updateFriendToggleBtn();
 };
-
-const tabSearch=document.getElementById('tab-search');
-const searchBoxWrap=document.getElementById('search-box-wrap');
 
 // TABS SWITCHER
 tabChats.onclick=()=>{
@@ -850,8 +1063,25 @@ backBtn.onclick=()=>{
 // SEND MESSAGE
 async function send(){
   const text=msgInput.value.trim();
-  if(!text||!peer||!socket)return;
+  if(!text && !selectedImageData) return;
+  if(!peer || !socket) return;
+
+  let payloadToSend;
+  if(selectedImageData){
+    payloadToSend=JSON.stringify({
+      type:'image',
+      data:selectedImageData,
+      text:text||''
+    });
+  }else{
+    payloadToSend=JSON.stringify({
+      type:'text',
+      data:text
+    });
+  }
+
   msgInput.value='';
+  clearSelectedImage();
 
   let peerKey;
   try{peerKey=typeof peer.publicKey==='string'?JSON.parse(peer.publicKey):peer.publicKey}
@@ -862,14 +1092,14 @@ async function send(){
   catch{toast('❌ Нет своего ключа');return}
 
   try{
-    const[forPeer,forMe]=await Promise.all([encFor(text,peerKey),encFor(text,myKey)]);
+    const[forPeer,forMe]=await Promise.all([encFor(payloadToSend,peerKey),encFor(payloadToSend,myKey)]);
     socket.emit('private_message',{
       senderId:me.id,
       receiverId:peer.id,
       encryptedContent:JSON.stringify(forPeer),
       senderCopy:JSON.stringify(forMe)
     });
-    addMsg(text,true,null);
+    addMsg(payloadToSend,true,null);
     if(activeTab==='chats') loadRecent();
   }catch(e){
     toast('❌ Ошибка: '+e.message);
