@@ -420,8 +420,21 @@ async function importPub(jwk){
 async function importPriv(jwk){
   return crypto.subtle.importKey('jwk',jwk,{name:'RSA-OAEP',hash:'SHA-256'},false,['decrypt']);
 }
-function buf2b64(b){return btoa(String.fromCharCode(...new Uint8Array(b)))}
-function b642buf(s){const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer}
+function buf2b64(b){
+  const bytes=new Uint8Array(b);
+  let binary='';
+  const len=bytes.byteLength;
+  const chunkSize=0x8000;
+  for(let i=0;i<len;i+=chunkSize){
+    binary+=String.fromCharCode.apply(null,bytes.subarray(i,Math.min(i+chunkSize,len)));
+  }
+  return btoa(binary);
+}
+function b642buf(s){
+  const b=atob(s),a=new Uint8Array(b.length);
+  for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);
+  return a.buffer;
+}
 
 async function encFor(text,pubJwk){
   const pub=await importPub(pubJwk);
@@ -671,6 +684,7 @@ async function register(){
     me=user; myPriv=keys.priv;
     localStorage.setItem('sc_u',JSON.stringify(user));
     localStorage.setItem('sc_p',JSON.stringify(keys.priv));
+    localStorage.setItem('sc_pwd',password);
     requestNotifyPermission();
     startApp();
   }catch(e){
@@ -717,12 +731,22 @@ window.addEventListener('DOMContentLoaded',()=>{
   try{
     const su=localStorage.getItem('sc_u');
     const sp=localStorage.getItem('sc_p');
+    const spwd=localStorage.getItem('sc_pwd');
     if(su&&sp){
       const u=JSON.parse(su);
       if(u&&u.id&&u.username){
         me=u;myPriv=JSON.parse(sp);
-        fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({username:u.username,publicKey:u.publicKey})}).catch(()=>{});
+        if(spwd){
+          fetch('/api/register',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({username:u.username,password:spwd,publicKey:u.publicKey})
+          }).then(r=>r.json()).then(upd=>{
+            if(upd && upd.id){
+              me=upd;
+              localStorage.setItem('sc_u',JSON.stringify(upd));
+            }
+          }).catch(()=>{});
+        }
         requestNotifyPermission();
         startApp();
       }
@@ -757,7 +781,7 @@ function connectSocket(){
   socket.on('disconnect',()=>toast('Соединение прервано'));
 
   socket.on('private_message',async msg=>{
-    let decrypted='[Ошибка расшифровки]';
+    let decrypted='[Зашифрованное сообщение]';
     try{
       const payload=JSON.parse(msg.encryptedContent);
       decrypted=await dec(payload,myPriv);
@@ -811,7 +835,7 @@ async function loadFriends(){
 }
 
 function isFriend(userId){
-  return myFriends.some(f => f.id === userId);
+  return myFriends.some(f => String(f.id) === String(userId));
 }
 
 async function addFriend(user){
@@ -913,20 +937,25 @@ async function triggerSearch(){
   try{
     const res=await fetch('/api/users/search?query='+encodeURIComponent(q));
     const list=await res.json();
-    renderSearchResults(list.filter(u=>u.id!==me.id));
+    const filtered=list.filter(u=>String(u.id)!==String(me.id));
+    renderSearchResults(filtered, list.length);
   }catch(e){}
 }
 
-function renderSearchResults(users){
+function renderSearchResults(users, totalOnServer){
   chatListEl.innerHTML='';
   if(!users.length){
-    chatListEl.innerHTML='<div class="empty-hint">Пользователи не найдены</div>';
+    if(totalOnServer<=1){
+      chatListEl.innerHTML='<div class="empty-hint">На сервере пока нет других пользователей.<br>Попросите друга зарегистрироваться по ссылке, чтобы начать общение!</div>';
+    }else{
+      chatListEl.innerHTML='<div class="empty-hint">Пользователи с таким ником не найдены</div>';
+    }
     return;
   }
   users.forEach(u=>{
     const isF=isFriend(u.id);
     const ci=document.createElement('div');
-    ci.className='ci'+(peer&&peer.id===u.id?' active':'');
+    ci.className='ci'+(peer&&String(peer.id)===String(u.id)?' active':'');
     ci.innerHTML=`
       <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
       <div class="ci-info">
@@ -955,7 +984,7 @@ function renderFriendsList(){
   myFriends.forEach(u=>{
     const hasPend=pending[String(u.id)]?.length>0;
     const ci=document.createElement('div');
-    ci.className='ci'+(peer&&peer.id===u.id?' active':'');
+    ci.className='ci'+(peer&&String(peer.id)===String(u.id)?' active':'');
     ci.innerHTML=`
       <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
       <div class="ci-info">
@@ -996,7 +1025,7 @@ function renderRecentList(users){
     const hasPend=pending[String(u.id)]?.length>0;
     const isF=isFriend(u.id);
     const ci=document.createElement('div');
-    ci.className='ci'+(peer&&peer.id===u.id?' active':'');
+    ci.className='ci'+(peer&&String(peer.id)===String(u.id)?' active':'');
     ci.innerHTML=`
       <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
       <div class="ci-info">
@@ -1030,17 +1059,26 @@ async function openChat(user){
     const res=await fetch(`/api/messages/${me.id}/${user.id}`);
     const history=await res.json();
     for(const msg of history){
-      const isMe=msg.senderId===me.id;
+      const isMe=String(msg.senderId)===String(me.id);
       let text='[Зашифровано]';
       try{
         const payload=JSON.parse(msg.encryptedContent);
         text=await dec(payload,myPriv);
       }catch(e){
-        text=isMe?'[Отправлено]':'[Ошибка расшифровки]';
+        text=isMe?'[Отправлено со старым ключом]':'[Зашифровано старым ключом]';
       }
       addMsg(text,isMe,msg.timestamp);
     }
   }catch(e){console.error('history err',e)}
+
+  // flush pending
+  const pend=pending[String(user.id)]||[];
+  for(const m of pend)addMsg(m.text,false,m.ts);
+  delete pending[String(user.id)];
+
+  if(activeTab==='chats') loadRecent();
+  msgInput.focus();
+}
 
   // flush pending
   const pend=pending[String(user.id)]||[];
