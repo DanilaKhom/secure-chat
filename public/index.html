@@ -783,20 +783,18 @@ window.addEventListener('DOMContentLoaded',async ()=>{
     if(su&&sp&&spwd){
       const u=JSON.parse(su);
       if(u&&u.id&&u.username){
-        // Regenerate keys to stay fresh on server and handle cross-device login
+        // Authenticate with existing keys to preserve decryption ability
         try{
-          const keys=await genKeys();
           const res=await fetch('/api/register',{
             method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({username:u.username,password:spwd,publicKey:JSON.stringify(keys.pub)})
+            body:JSON.stringify({username:u.username,password:spwd,publicKey:u.publicKey})
           });
           if(res.ok){
             const upd=await res.json();
             if(upd&&upd.id){
               me=upd;
-              myPriv=keys.priv;
+              myPriv=JSON.parse(sp);
               localStorage.setItem('sc_u',JSON.stringify(upd));
-              localStorage.setItem('sc_p',JSON.stringify(keys.priv));
             }else{
               throw new Error('bad response');
             }
