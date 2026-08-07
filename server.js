@@ -83,6 +83,33 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
+app.post('/api/reset-account', async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'Укажите никнейм' });
+  try {
+    const user = await db.get('SELECT id FROM users WHERE username = ?', [username]);
+    if (user) {
+      await db.run('DELETE FROM messages WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
+      await db.run('DELETE FROM friends WHERE userId = ? OR friendId = ?', [user.id, user.id]);
+      await db.run('DELETE FROM users WHERE id = ?', [user.id]);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/wipe-db', async (req, res) => {
+  try {
+    await db.run('DELETE FROM messages');
+    await db.run('DELETE FROM friends');
+    await db.run('DELETE FROM users');
+    res.json({ success: true, message: 'Database wiped' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Friends API
 app.post('/api/friends/add', async (req, res) => {
   const { userId, friendId } = req.body;

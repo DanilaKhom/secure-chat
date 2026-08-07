@@ -262,6 +262,7 @@ html,body{
     <input id="uname" class="field" type="text" placeholder="Ваш никнейм..." maxlength="30" autocomplete="off"/>
     <input id="upass" class="field" type="password" placeholder="Пароль..." maxlength="50"/>
     <button id="join-btn" class="btn">Войти / Зарегистрироваться</button>
+    <button id="reset-login-btn" class="ci-btn remove" style="width:100%;margin-top:.8rem;padding:.65rem;border-color:var(--border)">Обнулить этот никнейм на сервере</button>
     <div id="login-err"></div>
   </div>
 </div>
@@ -279,6 +280,7 @@ html,body{
             <div class="me-name" id="my-name">—</div>
             <div class="me-status"><span class="s-dot"></span>Online</div>
           </div>
+          <button id="logout-btn" class="ci-btn remove" style="margin-left:auto">Выйти</button>
         </div>
 
         <div class="tabs">
@@ -483,7 +485,37 @@ async function register(){
   }
 }
 joinBtn.onclick=register;
-unameEl.onkeydown=e=>{if(e.key==='Enter')register()};
+unameEl.onkeydown=e=>{if(e.key==='Enter')upassEl.focus()};
+upassEl.onkeydown=e=>{if(e.key==='Enter')register()};
+
+const resetLoginBtn=document.getElementById('reset-login-btn');
+resetLoginBtn.onclick=async()=>{
+  const username=unameEl.value.trim();
+  if(!username){loginErr.textContent='Введите никнейм для обнуления';return}
+  if(!confirm(`Обнулить аккаунт "${username}" и удалить его с сервера?`)) return;
+  try{
+    await fetch('/api/reset-account',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username})
+    });
+    localStorage.clear();
+    loginErr.style.color='#4ade80';
+    loginErr.textContent='✅ Никнейм обнулен! Можете регистрироваться заново.';
+  }catch(e){
+    loginErr.style.color='var(--red)';
+    loginErr.textContent='Ошибка обнуления: '+e.message;
+  }
+};
+
+const logoutBtn=document.getElementById('logout-btn');
+if(logoutBtn){
+  logoutBtn.onclick=()=>{
+    if(confirm('Выйти из аккаунта?')){
+      localStorage.clear();
+      window.location.reload();
+    }
+  };
+}
 
 // AUTO LOGIN
 window.addEventListener('DOMContentLoaded',()=>{
