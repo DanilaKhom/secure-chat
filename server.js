@@ -18,6 +18,8 @@ const io = new Server(server, {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+const userSockets = new Map(); // userId -> Set of socketIds
+
 // ─── Database ────────────────────────────────────────────────────────────────
 let db;
 async function initDb() {
@@ -42,6 +44,13 @@ async function initDb() {
       userId INTEGER NOT NULL,
       friendId INTEGER NOT NULL,
       UNIQUE(userId, friendId)
+    );
+    CREATE TABLE IF NOT EXISTS friend_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      senderId INTEGER NOT NULL,
+      receiverId INTEGER NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(senderId, receiverId)
     );
   `);
   try {
@@ -103,6 +112,7 @@ app.post('/api/reset-account', async (req, res) => {
       }
       await db.run('DELETE FROM messages WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
       await db.run('DELETE FROM friends WHERE userId = ? OR friendId = ?', [user.id, user.id]);
+      await db.run('DELETE FROM friend_requests WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
       await db.run('DELETE FROM users WHERE id = ?', [user.id]);
     }
     res.json({ success: true });
@@ -115,6 +125,7 @@ app.post('/api/wipe-db', async (req, res) => {
   try {
     await db.run('DELETE FROM messages');
     await db.run('DELETE FROM friends');
+    await db.run('DELETE FROM friend_requests');
     await db.run('DELETE FROM users');
     res.json({ success: true, message: 'Database wiped' });
   } catch (e) {
@@ -123,12 +134,51 @@ app.post('/api/wipe-db', async (req, res) => {
 });
 
 // Friends API
-app.post('/api/friends/add', async (req, res) => {
-  const { userId, friendId } = req.body;
-  if (!userId || !friendId) return res.status(400).json({ error: 'Missing fields' });
+app.post('/api/friends/request', async (req, res) => {
+  const { senderId, receiverId } = req.body;
+  if (!senderId || !receiverId) return res.status(400).json({ error: 'Missing fields' });
   try {
-    await db.run('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [userId, friendId]);
-    await db.run('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [friendId, userId]);
+    const existing = await db.get('SELECT id FROM friends WHERE userId = ? AND friendId = ?', [senderId, receiverId]);
+    if (existing) return res.status(400).json({ error: 'Already friends' });
+    await db.run('INSERT OR IGNORE INTO friend_requests (senderId, receiverId) VALUES (?, ?)', [senderId, receiverId]);
+
+    const sender = await db.get('SELECT username FROM users WHERE id = ?', [senderId]);
+    const rSockets = userSockets.get(String(receiverId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('friend_request', { senderId, senderName: sender.username });
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/friends/accept', async (req, res) => {
+  const { senderId, receiverId } = req.body;
+  if (!senderId || !receiverId) return res.status(400).json({ error: 'Missing fields' });
+  try {
+    await db.run('DELETE FROM friend_requests WHERE senderId = ? AND receiverId = ?', [senderId, receiverId]);
+    await db.run('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [senderId, receiverId]);
+    await db.run('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [receiverId, senderId]);
+
+    const receiver = await db.get('SELECT username FROM users WHERE id = ?', [receiverId]);
+    const sSockets = userSockets.get(String(senderId));
+    if (sSockets) {
+      for (const sid of sSockets) io.to(sid).emit('friend_accepted', { accepterId: receiverId, accepterName: receiver.username });
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/friends/reject', async (req, res) => {
+  const { senderId, receiverId } = req.body;
+  if (!senderId || !receiverId) return res.status(400).json({ error: 'Missing fields' });
+  try {
+    await db.run('DELETE FROM friend_requests WHERE senderId = ? AND receiverId = ?', [senderId, receiverId]);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -156,6 +206,21 @@ app.get('/api/friends/:userId', async (req, res) => {
       WHERE f.userId = ?
     `, [userId]);
     res.json(friends);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/friends/requests/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const requests = await db.all(`
+      SELECT u.id, u.username, u.publicKey
+      FROM users u
+      JOIN friend_requests fr ON u.id = fr.senderId
+      WHERE fr.receiverId = ?
+    `, [userId]);
+    res.json(requests);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -209,7 +274,6 @@ app.get('/api/chats/:userId', async (req, res) => {
 });
 
 // ─── Socket.IO ────────────────────────────────────────────────────────────────
-const userSockets = new Map(); // userId -> Set of socketIds
 
 io.on('connection', (socket) => {
   console.log('Connected:', socket.id);

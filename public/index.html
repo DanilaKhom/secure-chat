@@ -531,6 +531,7 @@ function compressImage(file, maxDimension=1000, quality=0.8){
 let me=null,myPriv=null,socket=null,peer=null;
 let activeTab='chats'; // 'chats' | 'friends' | 'search'
 let myFriends=[];     // list of friend objects
+let incomingRequests=[]; // list of pending requests
 let pending={};       // senderId -> [{text,ts}]
 let selectedImageData=null;
 
@@ -814,6 +815,17 @@ function connectSocket(){
   });
   socket.on('disconnect',()=>toast('Соединение прервано'));
 
+  socket.on('friend_request', async data=>{
+    toast('Заявка в друзья от: '+data.senderName);
+    showNotification('Заявка в друзья', data.senderName + ' хочет добавить вас');
+    await loadFriends();
+  });
+
+  socket.on('friend_accepted', async data=>{
+    toast(data.accepterName + ' принял(а) заявку');
+    await loadFriends();
+  });
+
   socket.on('private_message',async msg=>{
     let decrypted='[Зашифрованное сообщение]';
     try{
@@ -859,8 +871,12 @@ function connectSocket(){
 // ═══════════════════════════════════════
 async function loadFriends(){
   try{
-    const res=await fetch('/api/friends/'+me.id);
-    myFriends=await res.json();
+    const [resF, resR] = await Promise.all([
+      fetch('/api/friends/'+me.id),
+      fetch('/api/friends/requests/'+me.id)
+    ]);
+    myFriends=await resF.json();
+    incomingRequests=await resR.json();
     if(activeTab==='friends' && (!searchEl.value || !searchEl.value.trim())){
       renderFriendsList();
     }
@@ -872,19 +888,46 @@ function isFriend(userId){
   return myFriends.some(f => String(f.id) === String(userId));
 }
 
-async function addFriend(user){
+async function acceptRequest(user){
   try{
-    await fetch('/api/friends/add', {
+    await fetch('/api/friends/accept', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({userId:me.id, friendId:user.id})
+      body:JSON.stringify({senderId:user.id, receiverId:me.id})
     });
-    toast('Добавлен в друзья');
+    toast('Заявка принята');
+    await loadFriends();
+  }catch(e){toast('Ошибка');}
+}
+
+async function rejectRequest(user){
+  try{
+    await fetch('/api/friends/reject', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({senderId:user.id, receiverId:me.id})
+    });
+    toast('Заявка отклонена');
+    await loadFriends();
+  }catch(e){toast('Ошибка');}
+}
+
+async function addFriend(user){
+  try{
+    await fetch('/api/friends/request', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({senderId:me.id, receiverId:user.id})
+    });
+    toast('Заявка отправлена');
+    if(peer && String(peer.id)===String(user.id)){
+      friendToggleBtn.textContent='⏳ Отправлено';
+    }
     await loadFriends();
     if(searchEl.value.trim()){
       triggerSearch();
     }
-  }catch(e){toast('Ошибка добавления');}
+  }catch(e){toast('Ошибка отправки');}
 }
 
 async function removeFriend(user){
@@ -1011,8 +1054,46 @@ function renderSearchResults(users, totalOnServer){
 function renderFriendsList(){
   listTitle.textContent='Друзья ('+myFriends.length+')';
   chatListEl.innerHTML='';
+
+  if(incomingRequests && incomingRequests.length > 0){
+    const reqTitle = document.createElement('div');
+    reqTitle.className = 'sec-label';
+    reqTitle.textContent = 'Входящие заявки (' + incomingRequests.length + ')';
+    chatListEl.appendChild(reqTitle);
+    
+    incomingRequests.forEach(u => {
+      const ci = document.createElement('div');
+      ci.className = 'ci';
+      ci.innerHTML = `
+        <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+        <div class="ci-info">
+          <div class="ci-name">${esc(u.username)}</div>
+          <div class="ci-sub" style="color:#fbbf24">Хочет добавить вас</div>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="ci-btn" style="background:#4ade80;color:#000;border:1px solid #4ade80;min-width:32px">✓</button>
+          <button class="ci-btn remove" style="background:var(--card);color:var(--red);border-color:var(--red);min-width:32px">✕</button>
+        </div>
+      `;
+      const btns = ci.querySelectorAll('.ci-btn');
+      btns[0].onclick = (e) => { e.stopPropagation(); acceptRequest(u); };
+      btns[1].onclick = (e) => { e.stopPropagation(); rejectRequest(u); };
+      ci.querySelector('.ci-info').onclick = () => openChat(u);
+      ci.querySelector('.ci-av').onclick = () => openChat(u);
+      chatListEl.appendChild(ci);
+    });
+    
+    const div = document.createElement('div');
+    div.className = 'sec-label';
+    div.textContent = 'Мои друзья';
+    chatListEl.appendChild(div);
+  }
+
   if(!myFriends.length){
-    chatListEl.innerHTML='<div class="empty-hint">У вас пока нет друзей.<br>Найдите пользователя через поиск!</div>';
+    const h = document.createElement('div');
+    h.className = 'empty-hint';
+    h.innerHTML = 'У вас пока нет друзей.<br>Найдите пользователя через поиск!';
+    chatListEl.appendChild(h);
     return;
   }
   myFriends.forEach(u=>{
