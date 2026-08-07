@@ -9,21 +9,39 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
-  --bg:#000000;
-  --panel:#080808;
-  --card:#121212;
-  --card-hover:#1a1a1a;
-  --border:#222222;
-  --border-light:#333333;
-  --accent:#ffffff;
-  --accent-inv:#000000;
-  --text:#f0f0f0;
-  --muted:#666666;
-  --red:#ff4d4d;
-  --me-bubble:#ffffff;
+  --bg:#0e1621;
+  --panel:#17212b;
+  --card:#17212b;
+  --card-hover:#202b36;
+  --border:#0e1621;
+  --border-light:#242f3d;
+  --accent:#5288c1;
+  --accent-inv:#ffffff;
+  --text:#f5f5f5;
+  --muted:#7f91a4;
+  --red:#ff595a;
+  --me-bubble:#2b5278;
+  --me-text:#ffffff;
+  --them-bubble:#182533;
+  --them-text:#ffffff;
+}
+
+[data-theme="light"] {
+  --bg:#ffffff;
+  --panel:#f5f5f5;
+  --card:#ffffff;
+  --card-hover:#f0f0f0;
+  --border:#e0e0e0;
+  --border-light:#eeeeee;
+  --accent:#0088cc;
+  --accent-inv:#ffffff;
+  --text:#000000;
+  --muted:#888888;
+  --red:#e53935;
+  --me-bubble:#effdde;
   --me-text:#000000;
-  --them-bubble:#141414;
-  --them-text:#f0f0f0;
+  --them-bubble:#ffffff;
+  --them-text:#000000;
 }
 html,body{
   height:100%;
@@ -188,10 +206,10 @@ html,body{
 .mrow{display:flex;align-items:flex-end;gap:.4rem}
 .mrow.me{justify-content:flex-end}
 .mrow.them{justify-content:flex-start}
-.bubble{
-  max-width:75%;padding:.6rem .85rem;
-  border-radius:12px;font-size:.88rem;line-height:1.45;
-  word-break:break-word;white-space:pre-wrap;
+.bubble.msg{
+  max-width:85%;padding:.6rem .8rem;border-radius:12px;
+  font-size:.9rem;line-height:1.4;position:relative;
+  overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap;
 }
 .mrow.me .bubble{
   background:var(--me-bubble);color:var(--me-text);
@@ -631,7 +649,7 @@ function addMsg(rawContent,isMe,ts){
   inner.style.alignItems=isMe?'flex-end':'flex-start';
 
   const bub=document.createElement('div');
-  bub.className='bubble';
+  bub.className='bubble msg';
 
   const msgObj=parseMsgPayload(rawContent);
 
@@ -745,6 +763,19 @@ if(logoutBtn){
 
 // AUTO LOGIN
 window.addEventListener('DOMContentLoaded',async ()=>{
+  const themeToggle = document.getElementById('my-av');
+  themeToggle.style.cursor = 'pointer';
+  themeToggle.title = 'Сменить тему';
+  themeToggle.onclick = () => {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const newTheme = isLight ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('sc_theme', newTheme);
+  };
+  if(localStorage.getItem('sc_theme') === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+
   try{
     const su=localStorage.getItem('sc_u');
     const sp=localStorage.getItem('sc_p');
