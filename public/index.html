@@ -669,23 +669,22 @@ tabFriends.onclick=()=>{
 
 // SEARCH
 let sTimer;
+searchEl.onfocus=()=>{
+  triggerSearch();
+};
 searchEl.oninput=()=>{
   clearTimeout(sTimer);
-  const q=searchEl.value.trim();
-  if(!q){
-    if(activeTab==='chats') loadRecent(); else renderFriendsList();
-    return;
-  }
-  sTimer=setTimeout(triggerSearch, 250);
+  sTimer=setTimeout(triggerSearch, 200);
 };
 
 async function triggerSearch(){
   const q=searchEl.value.trim();
-  if(!q) return;
-  listTitle.textContent='Результаты поиска';
-  const res=await fetch('/api/users/search?query='+encodeURIComponent(q));
-  const list=await res.json();
-  renderSearchResults(list.filter(u=>u.id!==me.id));
+  listTitle.textContent=q?'Результаты поиска':'Все пользователи';
+  try{
+    const res=await fetch('/api/users/search?query='+encodeURIComponent(q));
+    const list=await res.json();
+    renderSearchResults(list.filter(u=>u.id!==me.id));
+  }catch(e){}
 }
 
 function renderSearchResults(users){
