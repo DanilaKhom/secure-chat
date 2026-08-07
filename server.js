@@ -89,11 +89,18 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.post('/api/reset-account', async (req, res) => {
-  const { username } = req.body;
-  if (!username) return res.status(400).json({ error: 'Укажите никнейм' });
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Укажите никнейм и пароль' });
+  const cleanUser = String(username).trim();
+  const cleanPass = String(password).trim();
+  const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
+  
   try {
-    const user = await db.get('SELECT id FROM users WHERE username = ?', [username]);
+    const user = await db.get('SELECT id, passwordHash FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     if (user) {
+      if (user.passwordHash && user.passwordHash !== hash) {
+        return res.status(401).json({ error: 'Неверный пароль' });
+      }
       await db.run('DELETE FROM messages WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
       await db.run('DELETE FROM friends WHERE userId = ? OR friendId = ?', [user.id, user.id]);
       await db.run('DELETE FROM users WHERE id = ?', [user.id]);
