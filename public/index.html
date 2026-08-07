@@ -305,7 +305,7 @@ html,body{
     <div class="card-icon">░</div>
     <h1>SecureChat</h1>
     <p>Минималистичный зашифрованный мессенджер.</p>
-    <form id="login-form" onsubmit="event.preventDefault();register();">
+    <form id="login-form">
       <input id="uname" class="field" type="text" placeholder="Ваш никнейм..." maxlength="30" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
       <input id="upass" class="field" type="password" placeholder="Пароль..." maxlength="50" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
       <button id="join-btn" type="submit" class="btn">Войти / Зарегистрироваться</button>
@@ -703,7 +703,10 @@ async function register(){
     joinBtn.textContent='Войти / Зарегистрироваться';
   }
 }
-joinBtn.onclick=register;
+document.getElementById('login-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  register();
+});
 
 const resetLoginBtn=document.getElementById('reset-login-btn');
 resetLoginBtn.onclick=async()=>{
@@ -735,31 +738,49 @@ if(logoutBtn){
 }
 
 // AUTO LOGIN
-window.addEventListener('DOMContentLoaded',()=>{
+window.addEventListener('DOMContentLoaded',async ()=>{
   try{
     const su=localStorage.getItem('sc_u');
     const sp=localStorage.getItem('sc_p');
     const spwd=localStorage.getItem('sc_pwd');
-    if(su&&sp){
+    if(su&&sp&&spwd){
       const u=JSON.parse(su);
       if(u&&u.id&&u.username){
-        me=u;myPriv=JSON.parse(sp);
-        if(spwd){
-          fetch('/api/register',{
+        // Regenerate keys to stay fresh on server and handle cross-device login
+        try{
+          const keys=await genKeys();
+          const res=await fetch('/api/register',{
             method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({username:u.username,password:spwd,publicKey:u.publicKey})
-          }).then(r=>r.json()).then(upd=>{
-            if(upd && upd.id){
+            body:JSON.stringify({username:u.username,password:spwd,publicKey:JSON.stringify(keys.pub)})
+          });
+          if(res.ok){
+            const upd=await res.json();
+            if(upd&&upd.id){
               me=upd;
+              myPriv=keys.priv;
               localStorage.setItem('sc_u',JSON.stringify(upd));
+              localStorage.setItem('sc_p',JSON.stringify(keys.priv));
+            }else{
+              throw new Error('bad response');
             }
-          }).catch(()=>{});
+          }else{
+            // Server rejected — password might be wrong, clear and show login
+            localStorage.clear();
+            return;
+          }
+        }catch(fetchErr){
+          // Network error: fall back to cached credentials
+          me=u;
+          myPriv=JSON.parse(sp);
         }
         requestNotifyPermission();
         startApp();
       }
     }
-  }catch{localStorage.clear()}
+  }catch(e){
+    console.error('auto-login err',e);
+    localStorage.clear();
+  }
 });
 
 // START APP
@@ -1078,15 +1099,6 @@ async function openChat(user){
       addMsg(text,isMe,msg.timestamp);
     }
   }catch(e){console.error('history err',e)}
-
-  // flush pending
-  const pend=pending[String(user.id)]||[];
-  for(const m of pend)addMsg(m.text,false,m.ts);
-  delete pending[String(user.id)];
-
-  if(activeTab==='chats') loadRecent();
-  msgInput.focus();
-}
 
   // flush pending
   const pend=pending[String(user.id)]||[];
