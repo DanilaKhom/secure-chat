@@ -5,6 +5,8 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 
+const cryptoModule = require('crypto');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -23,7 +25,8 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
-      publicKey TEXT NOT NULL
+      publicKey TEXT NOT NULL,
+      passwordHash TEXT
     );
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,6 +43,9 @@ async function initDb() {
       UNIQUE(userId, friendId)
     );
   `);
+  try {
+    await db.exec('ALTER TABLE users ADD COLUMN passwordHash TEXT');
+  } catch (e) {}
   console.log('DB ready');
 
   // Clean up messages older than 24 hours periodically (every 10 minutes)
@@ -54,19 +60,26 @@ async function initDb() {
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
-  const { username, publicKey } = req.body;
-  if (!username || !publicKey) return res.status(400).json({ error: 'Missing fields' });
+  const { username, password, publicKey } = req.body;
+  if (!username || !publicKey || !password) return res.status(400).json({ error: 'Заполните все поля (никнейм и пароль)' });
+
+  const hash = cryptoModule.createHash('sha256').update(password).digest('hex');
+
   try {
-    const result = await db.run('INSERT INTO users (username, publicKey) VALUES (?, ?)', [username, publicKey]);
+    const existing = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+    if (existing) {
+      if (existing.passwordHash && existing.passwordHash !== hash) {
+        return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
+      }
+      await db.run('UPDATE users SET publicKey = ?, passwordHash = ? WHERE username = ?', [publicKey, hash, username]);
+      const user = await db.get('SELECT id, username, publicKey FROM users WHERE username = ?', [username]);
+      return res.json(user);
+    }
+
+    const result = await db.run('INSERT INTO users (username, publicKey, passwordHash) VALUES (?, ?, ?)', [username, publicKey, hash]);
     res.json({ id: result.lastID, username, publicKey });
   } catch (e) {
-    if (e.message.includes('UNIQUE')) {
-      await db.run('UPDATE users SET publicKey = ? WHERE username = ?', [publicKey, username]);
-      const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
-      res.json(user);
-    } else {
-      res.status(500).json({ error: e.message });
-    }
+    res.status(500).json({ error: e.message });
   }
 });
 

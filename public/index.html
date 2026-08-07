@@ -260,7 +260,8 @@ html,body{
     <h1>SecureChat</h1>
     <p>Минималистичный зашифрованный мессенджер.</p>
     <input id="uname" class="field" type="text" placeholder="Ваш никнейм..." maxlength="30" autocomplete="off"/>
-    <button id="join-btn" class="btn">Войти</button>
+    <input id="upass" class="field" type="password" placeholder="Пароль..." maxlength="50"/>
+    <button id="join-btn" class="btn">Войти / Зарегистрироваться</button>
     <div id="login-err"></div>
   </div>
 </div>
@@ -392,6 +393,7 @@ const loginEl=document.getElementById('login');
 const appEl=document.getElementById('app');
 const joinBtn=document.getElementById('join-btn');
 const unameEl=document.getElementById('uname');
+const upassEl=document.getElementById('upass');
 const loginErr=document.getElementById('login-err');
 const myAv=document.getElementById('my-av');
 const myName=document.getElementById('my-name');
@@ -455,19 +457,21 @@ function addMsg(text,isMe,ts){
 // ═══════════════════════════════════════
 async function register(){
   const username=unameEl.value.trim();
-  if(!username){loginErr.textContent='Введите никнейм';return}
+  const password=upassEl.value.trim();
+  if(!username || !password){loginErr.textContent='Заполните никнейм и пароль';return}
   if(!crypto.subtle){loginErr.textContent='Нужен HTTPS для шифрования!';return}
   joinBtn.disabled=true;
-  joinBtn.textContent='Генерация ключей...';
+  joinBtn.textContent='Вход...';
   loginErr.textContent='';
   try{
     const keys=await genKeys();
     const res=await fetch('/api/register',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username,publicKey:JSON.stringify(keys.pub)})
+      body:JSON.stringify({username,password,publicKey:JSON.stringify(keys.pub)})
     });
-    if(!res.ok)throw new Error('Ошибка сервера: '+res.status);
     const user=await res.json();
+    if(!res.ok)throw new Error(user.error || ('Ошибка: '+res.status));
+
     me=user; myPriv=keys.priv;
     localStorage.setItem('sc_u',JSON.stringify(user));
     localStorage.setItem('sc_p',JSON.stringify(keys.priv));
