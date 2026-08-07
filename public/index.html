@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+<title>SecureChat — Minimal</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#000000;
+  --panel:#080808;
+  --card:#121212;
+  --card-hover:#1a1a1a;
+  --border:#222222;
+  --border-light:#333333;
+  --accent:#ffffff;
+  --accent-inv:#000000;
+  --text:#f0f0f0;
+  --muted:#666666;
+  --red:#ff4d4d;
+  --me-bubble:#ffffff;
+  --me-text:#000000;
+  --them-bubble:#141414;
+  --them-text:#f0f0f0;
+}
+html,body{
+  height:100%;
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ──── LOGIN ──── */
+#login{
+  display:flex;align-items:center;justify-content:center;
+  height:100dvh;padding:1.5rem;background:var(--bg);
+}
+.card{
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:16px;padding:2.5rem 2rem;width:100%;max-width:360px;
+}
+.card-icon{font-size:2.2rem;text-align:center;margin-bottom:1rem;color:var(--accent)}
+.card h1{text-align:center;font-size:1.4rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:.4rem}
+.card p{text-align:center;color:var(--muted);font-size:.8rem;margin-bottom:2rem;line-height:1.5}
+.field{
+  width:100%;background:var(--card);border:1px solid var(--border);
+  border-radius:10px;padding:.85rem 1rem;color:var(--text);font-size:.95rem;
+  outline:none;transition:border-color .15s;margin-bottom:1rem;
+  font-family:inherit;
+}
+.field:focus{border-color:var(--accent)}
+.btn{
+  width:100%;background:var(--accent);color:var(--accent-inv);border:none;
+  border-radius:10px;padding:.85rem;font-size:.95rem;font-weight:600;
+  cursor:pointer;transition:opacity .15s,transform .1s;
+  display:flex;align-items:center;justify-content:center;gap:.5rem;
+}
+.btn:hover{opacity:.9}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.4;pointer-events:none}
+#login-err{color:var(--red);font-size:.8rem;margin-top:.8rem;text-align:center;min-height:1.2rem}
+
+/* ──── APP SHELL ──── */
+#app{display:none;height:100dvh;flex-direction:row}
+.layout{display:flex;height:100%;width:100%}
+
+/* ──── SIDEBAR ──── */
+.sidebar{
+  width:300px;flex-shrink:0;
+  background:var(--panel);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;height:100%;
+}
+.sb-header{padding:1rem;border-bottom:1px solid var(--border)}
+.me-row{display:flex;align-items:center;gap:.75rem;margin-bottom:1rem}
+.av{
+  width:38px;height:38px;border-radius:50%;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:.95rem;flex-shrink:0;color:var(--accent-inv);
+}
+.me-name{font-weight:600;font-size:.9rem;letter-spacing:-0.01em}
+.me-status{font-size:.7rem;color:var(--muted);display:flex;align-items:center;gap:.3rem;margin-top:1px}
+.s-dot{width:5px;height:5px;background:var(--accent);border-radius:50%}
+
+/* Navigation Tabs */
+.tabs{display:flex;gap:.5rem;margin-bottom:.8rem;border-bottom:1px solid var(--border);padding-bottom:.6rem}
+.tab-btn{
+  flex:1;background:none;border:none;color:var(--muted);
+  font-size:.8rem;font-weight:600;padding:.4rem 0;cursor:pointer;
+  transition:color .15s;text-align:center;border-radius:6px;
+}
+.tab-btn.active{color:var(--accent);background:var(--card)}
+
+.sb-search{position:relative}
+.sb-search input{
+  width:100%;background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:.55rem .8rem .55rem 2rem;
+  color:var(--text);font-size:.85rem;outline:none;font-family:inherit;
+  transition:border-color .15s;
+}
+.sb-search input:focus{border-color:var(--border-light)}
+.sb-search .ico{position:absolute;left:.65rem;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.8rem}
+
+.sb-list{flex:1;overflow-y:auto;padding:.5rem}
+.sec-label{font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;padding:.4rem .6rem}
+
+/* List Items */
+.ci{
+  display:flex;align-items:center;gap:.7rem;padding:.6rem .7rem;
+  border-radius:8px;cursor:pointer;transition:background .12s;margin-bottom:2px;
+  border:1px solid transparent;
+}
+.ci:hover{background:var(--card)}
+.ci.active{background:var(--card);border-color:var(--border)}
+.ci-av{
+  width:36px;height:36px;border-radius:50%;background:var(--card);
+  border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:.85rem;color:var(--accent);flex-shrink:0;
+}
+.ci-info{flex:1;min-width:0}
+.ci-name{font-weight:500;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ci-sub{font-size:.7rem;color:var(--muted);margin-top:1px}
+.ci-btn{
+  background:var(--accent);color:var(--accent-inv);border:none;
+  border-radius:6px;padding:.3rem .6rem;font-size:.72rem;font-weight:600;
+  cursor:pointer;transition:opacity .15s;flex-shrink:0;
+}
+.ci-btn:hover{opacity:.85}
+.ci-btn.remove{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.ci-btn.remove:hover{color:var(--red);border-color:var(--red)}
+
+.empty-hint{text-align:center;color:var(--muted);font-size:.8rem;padding:2rem 1rem;line-height:1.5}
+
+/* ──── CHAT AREA ──── */
+.chat{flex:1;display:flex;flex-direction:column;min-width:0;height:100%;position:relative;background:var(--bg)}
+.chat-hdr{
+  height:56px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 1rem;gap:.7rem;
+  background:var(--panel);flex-shrink:0;
+}
+.back-btn{
+  display:none;background:none;border:none;color:var(--muted);
+  cursor:pointer;font-size:1.3rem;padding:.2rem .4rem;line-height:1;
+}
+.chat-hdr-av{
+  width:32px;height:32px;border-radius:50%;background:var(--card);
+  border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:var(--accent);font-size:.85rem;flex-shrink:0;
+}
+.chat-hdr-name{font-weight:600;font-size:.9rem}
+.chat-hdr-sub{font-size:.68rem;color:var(--muted)}
+.friend-toggle-btn{
+  margin-left:auto;background:none;border:1px solid var(--border);
+  color:var(--text);border-radius:6px;padding:.3rem .6rem;font-size:.72rem;
+  cursor:pointer;transition:all .15s;
+}
+.friend-toggle-btn:hover{border-color:var(--border-light)}
+
+/* Messages */
+.msgs{
+  flex:1;overflow-y:auto;padding:1.2rem;
+  display:flex;flex-direction:column;gap:.6rem;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+}
+.welcome{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  color:var(--muted);text-align:center;padding:2rem;
+}
+.welcome .big{font-size:3rem;margin-bottom:.8rem;opacity:.2}
+.welcome h2{color:var(--text);font-size:1.1rem;margin-bottom:.4rem;font-weight:600}
+.welcome p{font-size:.8rem;max-width:260px;line-height:1.5}
+
+.empty-chat{
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  flex:1;color:var(--muted);text-align:center;
+}
+.empty-chat .ico{font-size:2.2rem;margin-bottom:.6rem;opacity:.3}
+.empty-chat p{font-size:.8rem}
+
+/* Bubbles */
+.mrow{display:flex;align-items:flex-end;gap:.4rem}
+.mrow.me{justify-content:flex-end}
+.mrow.them{justify-content:flex-start}
+.bubble{
+  max-width:75%;padding:.6rem .85rem;
+  border-radius:12px;font-size:.88rem;line-height:1.45;
+  word-break:break-word;white-space:pre-wrap;
+}
+.mrow.me .bubble{
+  background:var(--me-bubble);color:var(--me-text);
+  border-bottom-right-radius:2px;font-weight:400;
+}
+.mrow.them .bubble{
+  background:var(--them-bubble);color:var(--them-text);
+  border:1px solid var(--border);border-bottom-left-radius:2px;
+}
+.mtime{font-size:.62rem;color:var(--muted);margin-top:.2rem;padding:0 .2rem}
+.mrow.me .mtime{text-align:right}
+
+/* Input Bar */
+.input-bar{
+  border-top:1px solid var(--border);background:var(--panel);
+  padding:.75rem 1rem;padding-bottom:max(.75rem, env(safe-area-inset-bottom));
+  flex-shrink:0;
+}
+.input-row{display:flex;gap:.5rem;align-items:center}
+#msg-input{
+  flex:1;background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:.65rem .9rem;color:var(--text);
+  font-size:16px;outline:none;transition:border-color .15s;
+  font-family:inherit;
+}
+#msg-input:focus{border-color:var(--border-light)}
+.send-btn{
+  width:38px;height:38px;background:var(--accent);border:none;
+  border-radius:8px;color:var(--accent-inv);font-size:1rem;cursor:pointer;
+  flex-shrink:0;transition:opacity .15s,transform .1s;
+  display:flex;align-items:center;justify-content:center;
+}
+.send-btn:hover{opacity:.85}
+.send-btn:active{transform:scale(.95)}
+
+/* Toast */
+#toast{
+  position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--accent);color:var(--accent-inv);border-radius:20px;
+  padding:.4rem 1rem;font-size:.78rem;font-weight:600;
+  opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;z-index:999;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+@media(max-width:600px){
+  .sidebar{
+    position:fixed;inset:0;width:100%;z-index:20;
+    transform:translateX(0);transition:transform .25s ease;
+  }
+  .sidebar.slide-out{transform:translateX(-100%)}
+  .chat{width:100%}
+  .back-btn{display:flex}
+}
+</style>
+</head>
+<body>
+
+<!-- ──── LOGIN ──── -->
+<div id="login">
+  <div class="card">
+    <div class="card-icon">░</div>
+    <h1>SecureChat</h1>
+    <p>Минималистичный зашифрованный мессенджер.</p>
+    <input id="uname" class="field" type="text" placeholder="Ваш никнейм..." maxlength="30" autocomplete="off"/>
+    <button id="join-btn" class="btn">Войти</button>
+    <div id="login-err"></div>
+  </div>
+</div>
+
+<!-- ──── APP ──── -->
+<div id="app">
+  <div class="layout">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar" id="sidebar">
+      <div class="sb-header">
+        <div class="me-row">
+          <div class="av" id="my-av">?</div>
+          <div>
+            <div class="me-name" id="my-name">—</div>
+            <div class="me-status"><span class="s-dot"></span>Online</div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" id="tab-chats">Чаты</button>
+          <button class="tab-btn" id="tab-friends">Друзья</button>
+        </div>
+
+        <div class="sb-search">
+          <span class="ico">🔍</span>
+          <input id="search" type="text" placeholder="Поиск пользователей..." autocomplete="off"/>
+        </div>
+      </div>
+
+      <div class="sb-list" id="sb-list">
+        <div class="sec-label" id="list-title">Чаты</div>
+        <div id="chat-list"><div class="empty-hint">Загрузка...</div></div>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="chat" id="chat-area">
+      <!-- Welcome -->
+      <div class="welcome" id="welcome">
+        <div class="big">░</div>
+        <h2>SecureChat</h2>
+        <p>Выберите собеседника или добавьте друга через поиск</p>
+      </div>
+
+      <!-- Active Chat -->
+      <div id="chat-view" style="display:none;flex-direction:column;height:100%">
+        <div class="chat-hdr">
+          <button class="back-btn" id="back-btn">←</button>
+          <div class="chat-hdr-av" id="peer-av">?</div>
+          <div>
+            <div class="chat-hdr-name" id="peer-name">—</div>
+            <div class="chat-hdr-sub">🔒 Зашифровано</div>
+          </div>
+          <button class="friend-toggle-btn" id="friend-toggle-btn">+ В друзья</button>
+        </div>
+
+        <div class="msgs" id="msgs">
+          <div class="empty-chat" id="msgs-empty">
+            <div class="ico">🔒</div>
+            <p>Начните диалог. Сообщения удаляются через 24 часа.</p>
+          </div>
+        </div>
+
+        <div class="input-bar">
+          <div class="input-row">
+            <input id="msg-input" type="text" placeholder="Написать..." autocomplete="off" enterkeyhint="send"/>
+            <button class="send-btn" id="send-btn">↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════
+// CRYPTO
+// ═══════════════════════════════════════
+async function genKeys(){
+  const kp=await crypto.subtle.generateKey(
+    {name:'RSA-OAEP',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},
+    true,['encrypt','decrypt']
+  );
+  return{
+    pub:await crypto.subtle.exportKey('jwk',kp.publicKey),
+    priv:await crypto.subtle.exportKey('jwk',kp.privateKey)
+  };
+}
+async function importPub(jwk){
+  return crypto.subtle.importKey('jwk',jwk,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
+}
+async function importPriv(jwk){
+  return crypto.subtle.importKey('jwk',jwk,{name:'RSA-OAEP',hash:'SHA-256'},false,['decrypt']);
+}
+function buf2b64(b){return btoa(String.fromCharCode(...new Uint8Array(b)))}
+function b642buf(s){const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer}
+
+async function encFor(text,pubJwk){
+  const pub=await importPub(pubJwk);
+  const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const enc=await crypto.subtle.encrypt({name:'AES-GCM',iv},aes,new TextEncoder().encode(text));
+  const raw=await crypto.subtle.exportKey('raw',aes);
+  const encKey=await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,raw);
+  return{c:buf2b64(enc),k:buf2b64(encKey),v:buf2b64(iv.buffer)};
+}
+async function dec(payload,privJwk){
+  const priv=await importPriv(privJwk);
+  const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b642buf(payload.k));
+  const aes=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(b642buf(payload.v))},aes,b642buf(payload.c));
+  return new TextDecoder().decode(plain);
+}
+
+// ═══════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════
+let me=null,myPriv=null,socket=null,peer=null;
+let activeTab='chats'; // 'chats' | 'friends'
+let myFriends=[];     // list of friend objects
+let pending={};       // senderId -> [{text,ts}]
+
+// DOM
+const loginEl=document.getElementById('login');
+const appEl=document.getElementById('app');
+const joinBtn=document.getElementById('join-btn');
+const unameEl=document.getElementById('uname');
+const loginErr=document.getElementById('login-err');
+const myAv=document.getElementById('my-av');
+const myName=document.getElementById('my-name');
+const tabChats=document.getElementById('tab-chats');
+const tabFriends=document.getElementById('tab-friends');
+const searchEl=document.getElementById('search');
+const listTitle=document.getElementById('list-title');
+const chatListEl=document.getElementById('chat-list');
+const welcomeEl=document.getElementById('welcome');
+const chatViewEl=document.getElementById('chat-view');
+const peerAv=document.getElementById('peer-av');
+const peerName=document.getElementById('peer-name');
+const friendToggleBtn=document.getElementById('friend-toggle-btn');
+const msgsEl=document.getElementById('msgs');
+const msgsEmpty=document.getElementById('msgs-empty');
+const msgInput=document.getElementById('msg-input');
+const sendBtn=document.getElementById('send-btn');
+const backBtn=document.getElementById('back-btn');
+const sidebarEl=document.getElementById('sidebar');
+const toastEl=document.getElementById('toast');
+
+// ═══════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════
+let toastTimer;
+function toast(msg,dur=2500){
+  clearTimeout(toastTimer);
+  toastEl.textContent=msg;
+  toastEl.classList.add('show');
+  toastTimer=setTimeout(()=>toastEl.classList.remove('show'),dur);
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function tstr(ts){
+  const d=ts?new Date(ts):new Date();
+  return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+function addMsg(text,isMe,ts){
+  msgsEmpty.style.display='none';
+  const row=document.createElement('div');
+  row.className='mrow '+(isMe?'me':'them');
+  const inner=document.createElement('div');
+  inner.style.display='flex';
+  inner.style.flexDirection='column';
+  inner.style.alignItems=isMe?'flex-end':'flex-start';
+  const bub=document.createElement('div');
+  bub.className='bubble';
+  bub.textContent=text;
+  const time=document.createElement('div');
+  time.className='mtime';
+  time.textContent=tstr(ts);
+  inner.appendChild(bub);
+  inner.appendChild(time);
+  row.appendChild(inner);
+  msgsEl.appendChild(row);
+  msgsEl.scrollTop=msgsEl.scrollHeight;
+}
+
+// ═══════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════
+async function register(){
+  const username=unameEl.value.trim();
+  if(!username){loginErr.textContent='Введите никнейм';return}
+  if(!crypto.subtle){loginErr.textContent='Нужен HTTPS для шифрования!';return}
+  joinBtn.disabled=true;
+  joinBtn.textContent='Генерация ключей...';
+  loginErr.textContent='';
+  try{
+    const keys=await genKeys();
+    const res=await fetch('/api/register',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username,publicKey:JSON.stringify(keys.pub)})
+    });
+    if(!res.ok)throw new Error('Ошибка сервера: '+res.status);
+    const user=await res.json();
+    me=user; myPriv=keys.priv;
+    localStorage.setItem('sc_u',JSON.stringify(user));
+    localStorage.setItem('sc_p',JSON.stringify(keys.priv));
+    startApp();
+  }catch(e){
+    loginErr.textContent='Ошибка: '+e.message;
+    joinBtn.disabled=false;
+    joinBtn.textContent='Войти';
+  }
+}
+joinBtn.onclick=register;
+unameEl.onkeydown=e=>{if(e.key==='Enter')register()};
+
+// AUTO LOGIN
+window.addEventListener('DOMContentLoaded',()=>{
+  try{
+    const su=localStorage.getItem('sc_u');
+    const sp=localStorage.getItem('sc_p');
+    if(su&&sp){
+      const u=JSON.parse(su);
+      if(u&&u.id&&u.username){
+        me=u;myPriv=JSON.parse(sp);
+        fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({username:u.username,publicKey:u.publicKey})}).catch(()=>{});
+        startApp();
+      }
+    }
+  }catch{localStorage.clear()}
+});
+
+// START APP
+function startApp(){
+  loginEl.style.display='none';
+  appEl.style.display='flex';
+  myAv.textContent=me.username[0].toUpperCase();
+  myName.textContent=me.username;
+  connectSocket();
+  loadFriends();
+  loadRecent();
+  setInterval(()=>{
+    if(me && (!searchEl.value || !searchEl.value.trim())){
+      loadFriends();
+      if(activeTab==='chats') loadRecent();
+    }
+  }, 8000);
+}
+
+// SOCKET
+function connectSocket(){
+  socket=io({transports:['websocket','polling']});
+  socket.on('connect',()=>{
+    socket.emit('register',me.id);
+    toast('Подключено');
+  });
+  socket.on('disconnect',()=>toast('Соединение прервано'));
+
+  socket.on('private_message',async msg=>{
+    let text='[Ошибка расшифровки]';
+    try{
+      const payload=JSON.parse(msg.encryptedContent);
+      text=await dec(payload,myPriv);
+    }catch(e){console.error('dec err',e)}
+
+    const sid=String(msg.senderId);
+    if(peer&&String(peer.id)===sid){
+      addMsg(text,false,msg.timestamp);
+    }else{
+      if(!pending[sid])pending[sid]=[];
+      pending[sid].push({text,ts:msg.timestamp});
+      toast('💬 Новое сообщение');
+      if(activeTab==='chats') loadRecent();
+    }
+  });
+}
+
+// ═══════════════════════════════════════
+// FRIENDS MANAGEMENT
+// ═══════════════════════════════════════
+async function loadFriends(){
+  try{
+    const res=await fetch('/api/friends/'+me.id);
+    myFriends=await res.json();
+    if(activeTab==='friends' && (!searchEl.value || !searchEl.value.trim())){
+      renderFriendsList();
+    }
+    updateFriendToggleBtn();
+  }catch(e){}
+}
+
+function isFriend(userId){
+  return myFriends.some(f => f.id === userId);
+}
+
+async function addFriend(user){
+  try{
+    await fetch('/api/friends/add', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({userId:me.id, friendId:user.id})
+    });
+    toast('Добавлен в друзья');
+    await loadFriends();
+    if(searchEl.value.trim()){
+      triggerSearch();
+    }
+  }catch(e){toast('Ошибка добавления');}
+}
+
+async function removeFriend(user){
+  try{
+    await fetch('/api/friends/remove', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({userId:me.id, friendId:user.id})
+    });
+    toast('Удален из друзей');
+    await loadFriends();
+    if(searchEl.value.trim()){
+      triggerSearch();
+    }
+  }catch(e){toast('Ошибка удаления');}
+}
+
+function updateFriendToggleBtn(){
+  if(!peer) return;
+  if(isFriend(peer.id)){
+    friendToggleBtn.textContent='✓ В друзьях';
+    friendToggleBtn.style.opacity='0.6';
+  }else{
+    friendToggleBtn.textContent='+ В друзья';
+    friendToggleBtn.style.opacity='1';
+  }
+}
+
+friendToggleBtn.onclick=async()=>{
+  if(!peer) return;
+  if(isFriend(peer.id)){
+    await removeFriend(peer);
+  }else{
+    await addFriend(peer);
+  }
+  updateFriendToggleBtn();
+};
+
+// TABS SWITCHER
+tabChats.onclick=()=>{
+  activeTab='chats';
+  tabChats.classList.add('active');
+  tabFriends.classList.remove('active');
+  searchEl.value='';
+  listTitle.textContent='Чаты';
+  loadRecent();
+};
+
+tabFriends.onclick=()=>{
+  activeTab='friends';
+  tabFriends.classList.add('active');
+  tabChats.classList.remove('active');
+  searchEl.value='';
+  listTitle.textContent='Друзья';
+  renderFriendsList();
+};
+
+// SEARCH
+let sTimer;
+searchEl.oninput=()=>{
+  clearTimeout(sTimer);
+  const q=searchEl.value.trim();
+  if(!q){
+    if(activeTab==='chats') loadRecent(); else renderFriendsList();
+    return;
+  }
+  sTimer=setTimeout(triggerSearch, 250);
+};
+
+async function triggerSearch(){
+  const q=searchEl.value.trim();
+  if(!q) return;
+  listTitle.textContent='Результаты поиска';
+  const res=await fetch('/api/users/search?query='+encodeURIComponent(q));
+  const list=await res.json();
+  renderSearchResults(list.filter(u=>u.id!==me.id));
+}
+
+function renderSearchResults(users){
+  chatListEl.innerHTML='';
+  if(!users.length){
+    chatListEl.innerHTML='<div class="empty-hint">Пользователи не найдены</div>';
+    return;
+  }
+  users.forEach(u=>{
+    const isF=isFriend(u.id);
+    const ci=document.createElement('div');
+    ci.className='ci'+(peer&&peer.id===u.id?' active':'');
+    ci.innerHTML=`
+      <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+      <div class="ci-info">
+        <div class="ci-name">${esc(u.username)}</div>
+        <div class="ci-sub">${isF?'У вас в друзьях':'Пользователь'}</div>
+      </div>
+      <button class="ci-btn ${isF?'remove':''}">${isF?'Удалить':'+ Друг'}</button>
+    `;
+    ci.querySelector('.ci-info').onclick=()=>openChat(u);
+    ci.querySelector('.ci-av').onclick=()=>openChat(u);
+    ci.querySelector('.ci-btn').onclick=(e)=>{
+      e.stopPropagation();
+      if(isF) removeFriend(u); else addFriend(u);
+    };
+    chatListEl.appendChild(ci);
+  });
+}
+
+function renderFriendsList(){
+  listTitle.textContent='Друзья ('+myFriends.length+')';
+  chatListEl.innerHTML='';
+  if(!myFriends.length){
+    chatListEl.innerHTML='<div class="empty-hint">У вас пока нет друзей.<br>Найдите пользователя через поиск!</div>';
+    return;
+  }
+  myFriends.forEach(u=>{
+    const hasPend=pending[String(u.id)]?.length>0;
+    const ci=document.createElement('div');
+    ci.className='ci'+(peer&&peer.id===u.id?' active':'');
+    ci.innerHTML=`
+      <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+      <div class="ci-info">
+        <div class="ci-name">${esc(u.username)}${hasPend?' 🔴':''}</div>
+        <div class="ci-sub">В друзьях</div>
+      </div>
+      <button class="ci-btn remove">✕</button>
+    `;
+    ci.querySelector('.ci-info').onclick=()=>openChat(u);
+    ci.querySelector('.ci-av').onclick=()=>openChat(u);
+    ci.querySelector('.ci-btn').onclick=(e)=>{
+      e.stopPropagation();
+      removeFriend(u);
+    };
+    chatListEl.appendChild(ci);
+  });
+}
+
+// ═══════════════════════════════════════
+// RECENT CHATS
+// ═══════════════════════════════════════
+async function loadRecent(){
+  if(activeTab!=='chats') return;
+  listTitle.textContent='Чаты';
+  try{
+    const res=await fetch('/api/chats/'+me.id);
+    renderRecentList(await res.json());
+  }catch{}
+}
+
+function renderRecentList(users){
+  chatListEl.innerHTML='';
+  if(!users.length){
+    chatListEl.innerHTML='<div class="empty-hint">Нет активных чатов.<br>Выберите друга или найдите через поиск!</div>';
+    return;
+  }
+  users.forEach(u=>{
+    const hasPend=pending[String(u.id)]?.length>0;
+    const isF=isFriend(u.id);
+    const ci=document.createElement('div');
+    ci.className='ci'+(peer&&peer.id===u.id?' active':'');
+    ci.innerHTML=`
+      <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+      <div class="ci-info">
+        <div class="ci-name">${esc(u.username)}${hasPend?' 🔴':''}</div>
+        <div class="ci-sub">${isF?'Друг':'Чаты'}</div>
+      </div>
+    `;
+    ci.onclick=()=>openChat(u);
+    chatListEl.appendChild(ci);
+  });
+}
+
+// ═══════════════════════════════════════
+// OPEN CHAT
+// ═══════════════════════════════════════
+async function openChat(user){
+  peer=user;
+  sidebarEl.classList.add('slide-out');
+  welcomeEl.style.display='none';
+  chatViewEl.style.display='flex';
+  peerAv.textContent=user.username[0].toUpperCase();
+  peerName.textContent=user.username;
+  updateFriendToggleBtn();
+
+  msgsEl.innerHTML='';
+  msgsEmpty.style.display='flex';
+  msgsEl.appendChild(msgsEmpty);
+
+  // Load history from server
+  try{
+    const res=await fetch(`/api/messages/${me.id}/${user.id}`);
+    const history=await res.json();
+    for(const msg of history){
+      const isMe=msg.senderId===me.id;
+      let text='[Зашифровано]';
+      try{
+        const payload=JSON.parse(msg.encryptedContent);
+        text=await dec(payload,myPriv);
+      }catch(e){
+        text=isMe?'[Отправлено]':'[Ошибка расшифровки]';
+      }
+      addMsg(text,isMe,msg.timestamp);
+    }
+  }catch(e){console.error('history err',e)}
+
+  // flush pending
+  const pend=pending[String(user.id)]||[];
+  for(const m of pend)addMsg(m.text,false,m.ts);
+  delete pending[String(user.id)];
+
+  if(activeTab==='chats') loadRecent();
+  msgInput.focus();
+}
+
+// BACK (MOBILE)
+backBtn.onclick=()=>{
+  sidebarEl.classList.remove('slide-out');
+  chatViewEl.style.display='none';
+  welcomeEl.style.display='flex';
+  peer=null;
+  if(activeTab==='chats') loadRecent(); else renderFriendsList();
+};
+
+// SEND MESSAGE
+async function send(){
+  const text=msgInput.value.trim();
+  if(!text||!peer||!socket)return;
+  msgInput.value='';
+
+  let peerKey;
+  try{peerKey=typeof peer.publicKey==='string'?JSON.parse(peer.publicKey):peer.publicKey}
+  catch{toast('❌ Нет ключа получателя');return}
+
+  let myKey;
+  try{myKey=typeof me.publicKey==='string'?JSON.parse(me.publicKey):me.publicKey}
+  catch{toast('❌ Нет своего ключа');return}
+
+  try{
+    const[forPeer,forMe]=await Promise.all([encFor(text,peerKey),encFor(text,myKey)]);
+    socket.emit('private_message',{
+      senderId:me.id,
+      receiverId:peer.id,
+      encryptedContent:JSON.stringify(forPeer),
+      senderCopy:JSON.stringify(forMe)
+    });
+    addMsg(text,true,null);
+    if(activeTab==='chats') loadRecent();
+  }catch(e){
+    toast('❌ Ошибка: '+e.message);
+    console.error(e);
+  }
+}
+
+sendBtn.onclick=send;
+msgInput.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();send()}};
+</script>
+</body>
+</html>
