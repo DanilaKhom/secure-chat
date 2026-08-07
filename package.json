@@ -6,7 +6,9 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.4",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.18.2",
     "socket.io": "^4.7.2",
     "sqlite": "^5.1.1",

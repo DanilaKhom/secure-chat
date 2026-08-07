@@ -2,8 +2,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const sqlite3 = require('sqlite3').verbose();
-const { open } = require('sqlite');
+const { createClient } = require('@libsql/client');
+require('dotenv').config();
 
 const cryptoModule = require('crypto');
 
@@ -23,8 +23,12 @@ const userSockets = new Map(); // userId -> Set of socketIds
 // ─── Database ────────────────────────────────────────────────────────────────
 let db;
 async function initDb() {
-  db = await open({ filename: path.join(__dirname, 'chat.sqlite'), driver: sqlite3.Database });
-  await db.exec(`
+  db = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN
+  });
+
+  await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -53,20 +57,38 @@ async function initDb() {
       UNIQUE(senderId, receiverId)
     );
   `);
+  
   try {
-    await db.exec('ALTER TABLE users ADD COLUMN passwordHash TEXT');
+    await db.execute('ALTER TABLE users ADD COLUMN passwordHash TEXT');
   } catch (e) {}
   console.log('DB ready');
 
   // Clean up messages older than 24 hours periodically (every 10 minutes)
   setInterval(async () => {
     try {
-      await db.run("DELETE FROM messages WHERE timestamp < DATETIME('now', '-24 hours')");
+      await db.execute("DELETE FROM messages WHERE timestamp < DATETIME('now', '-24 hours')");
     } catch(e) {
       console.error('Auto cleanup error:', e);
     }
   }, 10 * 60 * 1000);
 }
+
+// Helper functions to mimic sqlite interface
+async function dbGet(sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return result.rows[0];
+}
+
+async function dbAll(sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return result.rows;
+}
+
+async function dbRun(sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return { lastID: Number(result.lastInsertRowid) };
+}
+
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
@@ -80,17 +102,17 @@ app.post('/api/register', async (req, res) => {
   const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
 
   try {
-    const existing = await db.get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
+    const existing = await dbGet('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     if (existing) {
       if (existing.passwordHash && existing.passwordHash !== hash) {
         return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
       }
-      await db.run('UPDATE users SET publicKey = ?, passwordHash = ? WHERE id = ?', [publicKey, hash, existing.id]);
-      const user = await db.get('SELECT id, username, publicKey FROM users WHERE id = ?', [existing.id]);
+      await dbRun('UPDATE users SET publicKey = ?, passwordHash = ? WHERE id = ?', [publicKey, hash, existing.id]);
+      const user = await dbGet('SELECT id, username, publicKey FROM users WHERE id = ?', [existing.id]);
       return res.json(user);
     }
 
-    const result = await db.run('INSERT INTO users (username, publicKey, passwordHash) VALUES (?, ?, ?)', [cleanUser, publicKey, hash]);
+    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash) VALUES (?, ?, ?)', [cleanUser, publicKey, hash]);
     res.json({ id: result.lastID, username: cleanUser, publicKey });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -105,15 +127,15 @@ app.post('/api/reset-account', async (req, res) => {
   const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
   
   try {
-    const user = await db.get('SELECT id, passwordHash FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
+    const user = await dbGet('SELECT id, passwordHash FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     if (user) {
       if (user.passwordHash && user.passwordHash !== hash) {
         return res.status(401).json({ error: 'Неверный пароль' });
       }
-      await db.run('DELETE FROM messages WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
-      await db.run('DELETE FROM friends WHERE userId = ? OR friendId = ?', [user.id, user.id]);
-      await db.run('DELETE FROM friend_requests WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
-      await db.run('DELETE FROM users WHERE id = ?', [user.id]);
+      await dbRun('DELETE FROM messages WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
+      await dbRun('DELETE FROM friends WHERE userId = ? OR friendId = ?', [user.id, user.id]);
+      await dbRun('DELETE FROM friend_requests WHERE senderId = ? OR receiverId = ?', [user.id, user.id]);
+      await dbRun('DELETE FROM users WHERE id = ?', [user.id]);
     }
     res.json({ success: true });
   } catch (e) {
@@ -123,10 +145,10 @@ app.post('/api/reset-account', async (req, res) => {
 
 app.post('/api/wipe-db', async (req, res) => {
   try {
-    await db.run('DELETE FROM messages');
-    await db.run('DELETE FROM friends');
-    await db.run('DELETE FROM friend_requests');
-    await db.run('DELETE FROM users');
+    await dbRun('DELETE FROM messages');
+    await dbRun('DELETE FROM friends');
+    await dbRun('DELETE FROM friend_requests');
+    await dbRun('DELETE FROM users');
     res.json({ success: true, message: 'Database wiped' });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -138,11 +160,11 @@ app.post('/api/friends/request', async (req, res) => {
   const { senderId, receiverId } = req.body;
   if (!senderId || !receiverId) return res.status(400).json({ error: 'Missing fields' });
   try {
-    const existing = await db.get('SELECT id FROM friends WHERE userId = ? AND friendId = ?', [senderId, receiverId]);
+    const existing = await dbGet('SELECT id FROM friends WHERE userId = ? AND friendId = ?', [senderId, receiverId]);
     if (existing) return res.status(400).json({ error: 'Already friends' });
-    await db.run('INSERT OR IGNORE INTO friend_requests (senderId, receiverId) VALUES (?, ?)', [senderId, receiverId]);
+    await dbRun('INSERT OR IGNORE INTO friend_requests (senderId, receiverId) VALUES (?, ?)', [senderId, receiverId]);
 
-    const sender = await db.get('SELECT username FROM users WHERE id = ?', [senderId]);
+    const sender = await dbGet('SELECT username FROM users WHERE id = ?', [senderId]);
     const rSockets = userSockets.get(String(receiverId));
     if (rSockets) {
       for (const sid of rSockets) io.to(sid).emit('friend_request', { senderId, senderName: sender.username });
@@ -158,11 +180,11 @@ app.post('/api/friends/accept', async (req, res) => {
   const { senderId, receiverId } = req.body;
   if (!senderId || !receiverId) return res.status(400).json({ error: 'Missing fields' });
   try {
-    await db.run('DELETE FROM friend_requests WHERE senderId = ? AND receiverId = ?', [senderId, receiverId]);
-    await db.run('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [senderId, receiverId]);
-    await db.run('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [receiverId, senderId]);
+    await dbRun('DELETE FROM friend_requests WHERE senderId = ? AND receiverId = ?', [senderId, receiverId]);
+    await dbRun('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [senderId, receiverId]);
+    await dbRun('INSERT OR IGNORE INTO friends (userId, friendId) VALUES (?, ?)', [receiverId, senderId]);
 
-    const receiver = await db.get('SELECT username FROM users WHERE id = ?', [receiverId]);
+    const receiver = await dbGet('SELECT username FROM users WHERE id = ?', [receiverId]);
     const sSockets = userSockets.get(String(senderId));
     if (sSockets) {
       for (const sid of sSockets) io.to(sid).emit('friend_accepted', { accepterId: receiverId, accepterName: receiver.username });
@@ -178,7 +200,7 @@ app.post('/api/friends/reject', async (req, res) => {
   const { senderId, receiverId } = req.body;
   if (!senderId || !receiverId) return res.status(400).json({ error: 'Missing fields' });
   try {
-    await db.run('DELETE FROM friend_requests WHERE senderId = ? AND receiverId = ?', [senderId, receiverId]);
+    await dbRun('DELETE FROM friend_requests WHERE senderId = ? AND receiverId = ?', [senderId, receiverId]);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -189,7 +211,7 @@ app.post('/api/friends/remove', async (req, res) => {
   const { userId, friendId } = req.body;
   if (!userId || !friendId) return res.status(400).json({ error: 'Missing fields' });
   try {
-    await db.run('DELETE FROM friends WHERE (userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)', [userId, friendId, friendId, userId]);
+    await dbRun('DELETE FROM friends WHERE (userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)', [userId, friendId, friendId, userId]);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -199,7 +221,7 @@ app.post('/api/friends/remove', async (req, res) => {
 app.get('/api/friends/:userId', async (req, res) => {
   const { userId } = req.params;
   try {
-    const friends = await db.all(`
+    const friends = await dbAll(`
       SELECT u.id, u.username, u.publicKey
       FROM users u
       JOIN friends f ON u.id = f.friendId
@@ -214,7 +236,7 @@ app.get('/api/friends/:userId', async (req, res) => {
 app.get('/api/friends/requests/:userId', async (req, res) => {
   const { userId } = req.params;
   try {
-    const requests = await db.all(`
+    const requests = await dbAll(`
       SELECT u.id, u.username, u.publicKey
       FROM users u
       JOIN friend_requests fr ON u.id = fr.senderId
@@ -229,7 +251,7 @@ app.get('/api/friends/requests/:userId', async (req, res) => {
 app.get('/api/users/search', async (req, res) => {
   const { query } = req.query;
   try {
-    const allUsers = await db.all('SELECT id, username, publicKey FROM users');
+    const allUsers = await dbAll('SELECT id, username, publicKey FROM users');
     if (!query || !query.trim()) {
       return res.json(allUsers.slice(0, 20));
     }
@@ -242,13 +264,13 @@ app.get('/api/users/search', async (req, res) => {
 });
 
 app.get('/api/users/:id', async (req, res) => {
-  const user = await db.get('SELECT id, username, publicKey FROM users WHERE id = ?', [req.params.id]);
+  const user = await dbGet('SELECT id, username, publicKey FROM users WHERE id = ?', [req.params.id]);
   if (user) res.json(user); else res.status(404).json({ error: 'Not found' });
 });
 
 app.get('/api/messages/:userId/:friendId', async (req, res) => {
   const { userId, friendId } = req.params;
-  const messages = await db.all(`
+  const messages = await dbAll(`
     SELECT id, senderId, receiverId,
       CASE WHEN senderId = ? THEN senderCopy ELSE encryptedContent END as encryptedContent,
       timestamp
@@ -262,7 +284,7 @@ app.get('/api/messages/:userId/:friendId', async (req, res) => {
 
 app.get('/api/chats/:userId', async (req, res) => {
   const { userId } = req.params;
-  const chats = await db.all(`
+  const chats = await dbAll(`
     SELECT DISTINCT u.id, u.username, u.publicKey
     FROM users u
     JOIN messages m ON (u.id = m.senderId OR u.id = m.receiverId)
@@ -292,7 +314,7 @@ io.on('connection', (socket) => {
 
     // Save to DB
     try {
-      const result = await db.run(
+      const result = await dbRun(
         'INSERT INTO messages (senderId, receiverId, encryptedContent, senderCopy) VALUES (?, ?, ?, ?)',
         [senderId, receiverId, encryptedContent, senderCopy || null]
       );
@@ -344,4 +366,4 @@ initDb().then(() => {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 Chat server running on http://0.0.0.0:${PORT}\n`);
   });
-});
+}).catch(console.error);
