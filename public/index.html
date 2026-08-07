@@ -305,10 +305,12 @@ html,body{
     <div class="card-icon">░</div>
     <h1>SecureChat</h1>
     <p>Минималистичный зашифрованный мессенджер.</p>
-    <input id="uname" class="field" type="text" placeholder="Ваш никнейм..." maxlength="30" autocomplete="off"/>
-    <input id="upass" class="field" type="password" placeholder="Пароль..." maxlength="50"/>
-    <button id="join-btn" class="btn">Войти / Зарегистрироваться</button>
-    <button id="reset-login-btn" class="ci-btn remove" style="width:100%;margin-top:.8rem;padding:.65rem;border-color:var(--border)">Обнулить этот никнейм на сервере</button>
+    <form id="login-form" onsubmit="event.preventDefault();register();">
+      <input id="uname" class="field" type="text" placeholder="Ваш никнейм..." maxlength="30" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+      <input id="upass" class="field" type="password" placeholder="Пароль..." maxlength="50" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+      <button id="join-btn" type="submit" class="btn">Войти / Зарегистрироваться</button>
+    </form>
+    <button id="reset-login-btn" type="button" class="ci-btn remove" style="width:100%;margin-top:.8rem;padding:.65rem;border-color:var(--border)">Обнулить этот никнейм на сервере</button>
     <div id="login-err"></div>
   </div>
 </div>
@@ -667,10 +669,17 @@ function addMsg(rawContent,isMe,ts){
 async function register(){
   const username=unameEl.value.trim();
   const password=upassEl.value.trim();
-  if(!username || !password){loginErr.textContent='Заполните никнейм и пароль';return}
-  if(!crypto.subtle){loginErr.textContent='Нужен HTTPS для шифрования!';return}
+  loginErr.style.color='var(--red)';
+  if(!username || !password){
+    loginErr.textContent='Заполните никнейм и пароль';
+    return;
+  }
+  if(!crypto.subtle){
+    loginErr.textContent='Нужен HTTPS для работы шифрования!';
+    return;
+  }
   joinBtn.disabled=true;
-  joinBtn.textContent='Вход...';
+  joinBtn.textContent='⏳ Подключение к серверу...';
   loginErr.textContent='';
   try{
     const keys=await genKeys();
@@ -688,14 +697,13 @@ async function register(){
     requestNotifyPermission();
     startApp();
   }catch(e){
+    loginErr.style.color='var(--red)';
     loginErr.textContent='Ошибка: '+e.message;
     joinBtn.disabled=false;
-    joinBtn.textContent='Войти';
+    joinBtn.textContent='Войти / Зарегистрироваться';
   }
 }
 joinBtn.onclick=register;
-unameEl.onkeydown=e=>{if(e.key==='Enter')upassEl.focus()};
-upassEl.onkeydown=e=>{if(e.key==='Enter')register()};
 
 const resetLoginBtn=document.getElementById('reset-login-btn');
 resetLoginBtn.onclick=async()=>{

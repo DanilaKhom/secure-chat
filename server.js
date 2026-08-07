@@ -64,21 +64,25 @@ app.post('/api/register', async (req, res) => {
   const { username, password, publicKey } = req.body;
   if (!username || !publicKey || !password) return res.status(400).json({ error: 'Заполните все поля (никнейм и пароль)' });
 
-  const hash = cryptoModule.createHash('sha256').update(password).digest('hex');
+  const cleanUser = String(username).trim();
+  const cleanPass = String(password).trim();
+  if (!cleanUser || !cleanPass) return res.status(400).json({ error: 'Никнейм и пароль не могут быть пустыми' });
+
+  const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
 
   try {
-    const existing = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+    const existing = await db.get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     if (existing) {
       if (existing.passwordHash && existing.passwordHash !== hash) {
         return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
       }
-      await db.run('UPDATE users SET publicKey = ?, passwordHash = ? WHERE username = ?', [publicKey, hash, username]);
-      const user = await db.get('SELECT id, username, publicKey FROM users WHERE username = ?', [username]);
+      await db.run('UPDATE users SET publicKey = ?, passwordHash = ? WHERE id = ?', [publicKey, hash, existing.id]);
+      const user = await db.get('SELECT id, username, publicKey FROM users WHERE id = ?', [existing.id]);
       return res.json(user);
     }
 
-    const result = await db.run('INSERT INTO users (username, publicKey, passwordHash) VALUES (?, ?, ?)', [username, publicKey, hash]);
-    res.json({ id: result.lastID, username, publicKey });
+    const result = await db.run('INSERT INTO users (username, publicKey, passwordHash) VALUES (?, ?, ?)', [cleanUser, publicKey, hash]);
+    res.json({ id: result.lastID, username: cleanUser, publicKey });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
