@@ -33,7 +33,8 @@ async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
       publicKey TEXT NOT NULL,
-      passwordHash TEXT
+      passwordHash TEXT,
+      encryptedPrivKey TEXT
     );
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +61,9 @@ async function initDb() {
   
   try {
     await db.execute('ALTER TABLE users ADD COLUMN passwordHash TEXT');
+  } catch (e) {}
+  try {
+    await db.execute('ALTER TABLE users ADD COLUMN encryptedPrivKey TEXT');
   } catch (e) {}
   console.log('DB ready');
 
@@ -92,8 +96,8 @@ async function dbRun(sql, args = []) {
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
-  const { username, password, publicKey } = req.body;
-  if (!username || !publicKey || !password) return res.status(400).json({ error: 'Заполните все поля (никнейм и пароль)' });
+  const { username, password, publicKey, encryptedPrivKey } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Заполните все поля (никнейм и пароль)' });
 
   const cleanUser = String(username).trim();
   const cleanPass = String(password).trim();
@@ -107,13 +111,22 @@ app.post('/api/register', async (req, res) => {
       if (existing.passwordHash && existing.passwordHash !== hash) {
         return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
       }
-      await dbRun('UPDATE users SET publicKey = ?, passwordHash = ? WHERE id = ?', [publicKey, hash, existing.id]);
-      const user = await dbGet('SELECT id, username, publicKey FROM users WHERE id = ?', [existing.id]);
-      return res.json(user);
+      
+      // Return existing user info so client can decrypt their private key
+      return res.json({ 
+        id: existing.id, 
+        username: existing.username, 
+        publicKey: existing.publicKey,
+        encryptedPrivKey: existing.encryptedPrivKey
+      });
     }
 
-    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash) VALUES (?, ?, ?)', [cleanUser, publicKey, hash]);
-    res.json({ id: result.lastID, username: cleanUser, publicKey });
+    if (!publicKey || !encryptedPrivKey) {
+      return res.status(400).json({ error: 'Для регистрации нужны ключи шифрования' });
+    }
+
+    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey) VALUES (?, ?, ?, ?)', [cleanUser, publicKey, hash, encryptedPrivKey]);
+    res.json({ id: result.lastID, username: cleanUser, publicKey, encryptedPrivKey });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

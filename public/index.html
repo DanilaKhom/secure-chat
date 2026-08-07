@@ -474,6 +474,35 @@ async function dec(payload,privJwk){
 }
 
 // ═══════════════════════════════════════
+// PBKDF2 WRAPPING (Save Private Key on Server)
+// ═══════════════════════════════════════
+async function getKek(password){
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), {name: 'PBKDF2'}, false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name: 'PBKDF2', salt: enc.encode('friendlychat_salt'), iterations: 100000, hash: 'SHA-256'},
+    keyMaterial, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function wrapPrivKey(privJwk, password){
+  const kek = await getKek(password);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const enc = await crypto.subtle.encrypt(
+    {name: 'AES-GCM', iv}, kek, new TextEncoder().encode(JSON.stringify(privJwk))
+  );
+  return { c: buf2b64(enc), v: buf2b64(iv.buffer) };
+}
+
+async function unwrapPrivKey(wrappedObj, password){
+  const kek = await getKek(password);
+  const dec = await crypto.subtle.decrypt(
+    {name: 'AES-GCM', iv: new Uint8Array(b642buf(wrappedObj.v))}, kek, b642buf(wrappedObj.c)
+  );
+  return JSON.parse(new TextDecoder().decode(dec));
+}
+
+// ═══════════════════════════════════════
 // NOTIFICATIONS & AUDIO
 // ═══════════════════════════════════════
 let audioCtx=null;
@@ -701,17 +730,44 @@ async function register(){
   joinBtn.textContent='⏳ Подключение к серверу...';
   loginErr.textContent='';
   try{
-    const keys=await genKeys();
-    const res=await fetch('/api/register',{
+    // Try to login to check if user exists
+    let res=await fetch('/api/register',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username,password,publicKey:JSON.stringify(keys.pub)})
+      body:JSON.stringify({username,password,publicKey:'dummy',encryptedPrivKey:'dummy'}) // dummy for check
     });
-    const user=await res.json();
-    if(!res.ok)throw new Error(user.error || ('Ошибка: '+res.status));
+    
+    let user=await res.json();
+    if(!res.ok && res.status !== 400) { 
+      // If 400, it might mean user doesn't exist and needs keys, which is expected
+      if (res.status === 401) throw new Error(user.error || 'Неверный пароль');
+    }
 
-    me=user; myPriv=keys.priv;
-    localStorage.setItem('sc_u',JSON.stringify(user));
-    localStorage.setItem('sc_p',JSON.stringify(keys.priv));
+    if (res.ok && user.encryptedPrivKey) {
+      // User exists, try to unwrap their private key
+      try {
+        const privJwk = await unwrapPrivKey(JSON.parse(user.encryptedPrivKey), password);
+        myPriv = privJwk;
+        me = user;
+      } catch(e) {
+        throw new Error('Ключ поврежден или неверный пароль (ошибка расшифровки)');
+      }
+    } else {
+      // New user registration
+      const keys=await genKeys();
+      const wrappedPriv=await wrapPrivKey(keys.priv, password);
+      
+      res=await fetch('/api/register',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({username,password,publicKey:JSON.stringify(keys.pub),encryptedPrivKey:JSON.stringify(wrappedPriv)})
+      });
+      user=await res.json();
+      if(!res.ok) throw new Error(user.error || 'Ошибка при регистрации');
+      me = user;
+      myPriv = keys.priv;
+    }
+
+    localStorage.setItem('sc_u',JSON.stringify(me));
+    localStorage.setItem('sc_p',JSON.stringify(myPriv));
     localStorage.setItem('sc_pwd',password);
     requestNotifyPermission();
     startApp();
@@ -783,18 +839,22 @@ window.addEventListener('DOMContentLoaded',async ()=>{
     if(su&&sp&&spwd){
       const u=JSON.parse(su);
       if(u&&u.id&&u.username){
-        // Authenticate with existing keys to preserve decryption ability
         try{
           const res=await fetch('/api/register',{
             method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({username:u.username,password:spwd,publicKey:u.publicKey})
+            body:JSON.stringify({username:u.username,password:spwd,publicKey:u.publicKey,encryptedPrivKey:'dummy'})
           });
           if(res.ok){
             const upd=await res.json();
             if(upd&&upd.id){
               me=upd;
-              myPriv=JSON.parse(sp);
+              if (upd.encryptedPrivKey) {
+                myPriv = await unwrapPrivKey(JSON.parse(upd.encryptedPrivKey), spwd);
+              } else {
+                myPriv = JSON.parse(sp); // Fallback for old accounts
+              }
               localStorage.setItem('sc_u',JSON.stringify(upd));
+              localStorage.setItem('sc_p',JSON.stringify(myPriv));
             }else{
               throw new Error('bad response');
             }
@@ -804,7 +864,7 @@ window.addEventListener('DOMContentLoaded',async ()=>{
             return;
           }
         }catch(fetchErr){
-          // Network error: fall back to cached credentials
+          // Network error or decryption error: fall back to cached credentials
           me=u;
           myPriv=JSON.parse(sp);
         }
