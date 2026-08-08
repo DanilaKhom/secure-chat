@@ -1392,7 +1392,14 @@ function playIncomingPCM(rawBuffer, rate) {
     src.connect(audioRelayCtx.destination);
 
     const now = audioRelayCtx.currentTime;
-    if (nextPlayTime < now || nextPlayTime > now + 0.3) nextPlayTime = now + 0.02;
+    // Jitter buffer logic for smooth playback over WebSockets
+    if (nextPlayTime < now) {
+      // Underrun (network lagged): add a 200ms buffer to absorb future jitter
+      nextPlayTime = now + 0.2;
+    } else if (nextPlayTime > now + 1.0) {
+      // Overrun (too much buffered audio): catch up to 200ms buffer
+      nextPlayTime = now + 0.2;
+    }
     src.start(nextPlayTime);
     nextPlayTime += audioBuffer.duration;
   } catch(e) {
