@@ -89,6 +89,9 @@ async function initDb() {
   try {
     await db.execute('ALTER TABLE users ADD COLUMN hideOnlineStatus INTEGER DEFAULT 0');
   } catch (e) {}
+  try {
+    await db.execute('ALTER TABLE messages ADD COLUMN isRead INTEGER DEFAULT 0');
+  } catch (e) {}
   console.log('DB ready');
 
   // Clean up messages older than 24 hours periodically (every 10 minutes)
@@ -399,7 +402,8 @@ app.get('/api/messages/:userId/:friendId', async (req, res) => {
   const messages = await dbAll(`
     SELECT id, senderId, receiverId,
       CASE WHEN senderId = ? THEN senderCopy ELSE encryptedContent END as encryptedContent,
-      timestamp
+      timestamp,
+      isRead
     FROM messages
     WHERE ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))
       AND timestamp >= DATETIME('now', '-24 hours')
@@ -474,7 +478,7 @@ io.on('connection', (socket) => {
     // Save to DB
     try {
       const result = await dbRun(
-        'INSERT INTO messages (senderId, receiverId, encryptedContent, senderCopy) VALUES (?, ?, ?, ?)',
+        'INSERT INTO messages (senderId, receiverId, encryptedContent, senderCopy, isRead) VALUES (?, ?, ?, ?, 0)',
         [senderId, receiverId, encryptedContent, senderCopy || null]
       );
 
@@ -483,7 +487,8 @@ io.on('connection', (socket) => {
         senderId,
         receiverId,
         encryptedContent,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        isRead: 0
       };
 
       // Deliver to ALL receiver's sockets
@@ -529,6 +534,23 @@ io.on('connection', (socket) => {
     } catch (e) {
       console.error('Error saving message:', e);
       socket.emit('error', { message: 'Failed to send' });
+    }
+  });
+
+  socket.on('mark_read', async (data) => {
+    const { senderId, receiverId } = data;
+    if (!senderId || !receiverId) return;
+    try {
+      await dbRun('UPDATE messages SET isRead = 1 WHERE senderId = ? AND receiverId = ? AND isRead = 0', [senderId, receiverId]);
+      
+      const sSockets = userSockets.get(String(senderId));
+      if (sSockets) {
+        for (const sid of sSockets) {
+          io.to(sid).emit('messages_read', { readerId: receiverId, senderId });
+        }
+      }
+    } catch (e) {
+      console.error('mark_read error:', e);
     }
   });
 

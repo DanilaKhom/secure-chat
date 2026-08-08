@@ -330,8 +330,21 @@ input:checked + .slider:before{transform:translateX(20px)}
   transition:opacity .15s,transform .15s;
 }
 .bubble-img:hover{opacity:.95;transform:scale(1.01)}
-.mtime{font-size:.62rem;color:var(--muted);margin-top:.2rem;padding:0 .2rem}
-.mrow.me .mtime{text-align:right}
+.mtime{
+  font-size:.64rem;color:var(--muted);margin-top:.25rem;padding:0 .2rem;
+  display:inline-flex;align-items:center;gap:3px;
+}
+.mrow.me .mtime{justify-content:flex-end}
+.msg-status{
+  font-size:.76rem;font-weight:700;letter-spacing:-1.5px;
+  line-height:1;margin-left:2px;display:inline-flex;
+}
+.tick-delivered{
+  color:var(--muted);opacity:0.75;
+}
+.tick-read{
+  color:#38bdf8;text-shadow:0 0 6px rgba(56,189,248,0.5);
+}
 
 /* Input Bar */
 .input-bar{
@@ -973,7 +986,7 @@ function parseMsgPayload(raw){
   return { type:'text', data:raw };
 }
 
-function addMsg(rawContent,isMe,ts){
+function addMsg(rawContent,isMe,ts,isRead=false){
   msgsEmpty.style.display='none';
   const row=document.createElement('div');
   row.className='mrow '+(isMe?'me':'them');
@@ -1008,7 +1021,13 @@ function addMsg(rawContent,isMe,ts){
 
   const time=document.createElement('div');
   time.className='mtime';
-  time.textContent=tstr(ts);
+  let statusHtml = '';
+  if(isMe){
+    const readClass = isRead ? 'tick-read' : 'tick-delivered';
+    const ticks = isRead ? '✓✓' : '✓';
+    statusHtml = ` <span class="msg-status ${readClass}" title="${isRead ? 'Просмотрено' : 'Доставлено'}">${ticks}</span>`;
+  }
+  time.innerHTML = `${esc(tstr(ts))}${statusHtml}`;
   inner.appendChild(bub);
   inner.appendChild(time);
   row.appendChild(inner);
@@ -1836,6 +1855,17 @@ function connectSocket(){
     await loadFriends();
   });
 
+  socket.on('messages_read', data => {
+    if(peer && String(peer.id) === String(data.readerId)){
+      const statuses = msgsEl.querySelectorAll('.mrow.me .msg-status');
+      statuses.forEach(s => {
+        s.className = 'msg-status tick-read';
+        s.textContent = '✓✓';
+        s.title = 'Просмотрено';
+      });
+    }
+  });
+
   socket.on('private_message',async msg=>{
     let decrypted='[Зашифрованное сообщение]';
     try{
@@ -1857,7 +1887,8 @@ function connectSocket(){
     const isCurrentChat=peer && String(peer.id)===sid;
 
     if(isCurrentChat){
-      addMsg(decrypted,false,msg.timestamp);
+      addMsg(decrypted,false,msg.timestamp,true);
+      socket.emit('mark_read', { senderId: msg.senderId, receiverId: me.id });
       if(document.hidden){
         showNotification(peer.username, snippet);
       }
@@ -2227,7 +2258,12 @@ async function openChat(user){
       }catch(e){
         text=isMe?'[Отправлено со старым ключом]':'[Зашифровано старым ключом]';
       }
-      addMsg(text,isMe,msg.timestamp);
+      addMsg(text,isMe,msg.timestamp,!!msg.isRead);
+    }
+    
+    // Mark as read in server
+    if(socket){
+      socket.emit('mark_read', { senderId: user.id, receiverId: me.id });
     }
   }catch(e){console.error('history err',e)}
 
@@ -2288,7 +2324,7 @@ async function send(){
       encryptedContent:JSON.stringify(forPeer),
       senderCopy:JSON.stringify(forMe)
     });
-    addMsg(payloadToSend,true,null);
+    addMsg(payloadToSend,true,null,false);
     if(activeTab==='chats') loadRecent();
   }catch(e){
     toast('❌ Ошибка: '+e.message);
