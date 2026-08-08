@@ -1424,10 +1424,6 @@ function startVideoRelay(targetId) {
 }
 
 function stopRelays() {
-  if (mediaRecorderRelay) {
-    try { mediaRecorderRelay.stop(); } catch(e){}
-    mediaRecorderRelay = null;
-  }
   if (audioScriptNode) {
     try { audioScriptNode.disconnect(); } catch(e){}
     audioScriptNode = null;
