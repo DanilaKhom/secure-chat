@@ -636,9 +636,15 @@ function buf2b64(b){
   return btoa(binary);
 }
 function b642buf(s){
-  const b=atob(s),a=new Uint8Array(b.length);
-  for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);
-  return a.buffer;
+  if (!s || typeof s !== 'string') return new ArrayBuffer(0);
+  try {
+    const b = atob(s), a = new Uint8Array(b.length);
+    for(let i=0; i<b.length; i++) a[i] = b.charCodeAt(i);
+    return a.buffer;
+  } catch(e) {
+    console.warn('b642buf invalid base64 string:', s);
+    return new ArrayBuffer(0);
+  }
 }
 
 async function encFor(text,pubJwk){
@@ -680,9 +686,17 @@ async function wrapPrivKey(privJwk, password){
 }
 
 async function unwrapPrivKey(wrappedObj, password){
+  if (!wrappedObj) return null;
+  let obj = wrappedObj;
+  if (typeof wrappedObj === 'string') {
+    try { obj = JSON.parse(wrappedObj); } catch(e){}
+  }
+  if (!obj || typeof obj !== 'object' || !obj.c || !obj.v) {
+    throw new Error('Key structure corrupted');
+  }
   const kek = await getKek(password);
   const dec = await crypto.subtle.decrypt(
-    {name: 'AES-GCM', iv: new Uint8Array(b642buf(wrappedObj.v))}, kek, b642buf(wrappedObj.c)
+    {name: 'AES-GCM', iv: new Uint8Array(b642buf(obj.v))}, kek, b642buf(obj.c)
   );
   return JSON.parse(new TextDecoder().decode(dec));
 }
