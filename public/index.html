@@ -1281,11 +1281,7 @@ function stopRingtone() {
 async function getMedia(isVideo) {
   try {
     const constraints = {
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      },
+      audio: { echoCancellation: true },
       video: isVideo ? { facingMode: 'user' } : false
     };
     let stream;
@@ -1314,12 +1310,12 @@ async function getMedia(isVideo) {
 
 function startAudioRelay(stream, targetId) {
   try {
-    if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
-      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioRelayCtx) {
+      try { audioRelayCtx.close(); } catch(e){}
     }
-    if (audioRelayCtx.state === 'suspended') {
-      audioRelayCtx.resume();
-    }
+    audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioRelayCtx.resume();
+
     const currentRate = audioRelayCtx.sampleRate || 44100;
     audioSourceNode = audioRelayCtx.createMediaStreamSource(stream);
     audioScriptNode = audioRelayCtx.createScriptProcessor(4096, 1, 1);
@@ -1327,6 +1323,9 @@ function startAudioRelay(stream, targetId) {
     audioScriptNode.onaudioprocess = (e) => {
       if (callState !== 'active') return;
       const input = e.inputBuffer.getChannelData(0);
+      const output = e.outputBuffer.getChannelData(0);
+      output.fill(0); // Zero out speaker output to prevent acoustic feedback loop
+      
       const pcm16 = new Int16Array(input.length);
       for (let i = 0; i < input.length; i++) {
         let s = Math.max(-1, Math.min(1, input[i]));
@@ -1337,12 +1336,8 @@ function startAudioRelay(stream, targetId) {
       }
     };
 
-    // Non-zero gain keeps Web Audio rendering thread continuously active on Chrome and Safari
-    const muteGain = audioRelayCtx.createGain();
-    muteGain.gain.setValueAtTime(0.00001, audioRelayCtx.currentTime);
     audioSourceNode.connect(audioScriptNode);
-    audioScriptNode.connect(muteGain);
-    muteGain.connect(audioRelayCtx.destination);
+    audioScriptNode.connect(audioRelayCtx.destination);
   } catch (err) {
     console.warn('startAudioRelay non-fatal err:', err);
   }
