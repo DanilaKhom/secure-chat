@@ -186,7 +186,8 @@ app.post('/api/register', async (req, res) => {
   const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
 
   try {
-    const existing = await dbGet('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
+    const encKeyStr = typeof encryptedPrivKey === 'object' ? JSON.stringify(encryptedPrivKey) : String(encryptedPrivKey || '');
+
     if (existing) {
       if (existing.passwordHash && existing.passwordHash !== hash) {
         return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
@@ -195,12 +196,18 @@ app.post('/api/register', async (req, res) => {
       // Update last seen
       await dbRun('UPDATE users SET lastSeen = ? WHERE id = ?', [Date.now(), existing.id]);
       
-      // Return existing user info so client can decrypt their private key
+      let parsedPrivKey = existing.encryptedPrivKey;
+      try {
+        if (typeof existing.encryptedPrivKey === 'string' && existing.encryptedPrivKey.startsWith('{')) {
+          parsedPrivKey = JSON.parse(existing.encryptedPrivKey);
+        }
+      } catch(e){}
+
       return res.json({ 
         id: existing.id, 
         username: existing.username, 
         publicKey: existing.publicKey,
-        encryptedPrivKey: existing.encryptedPrivKey,
+        encryptedPrivKey: parsedPrivKey,
         hideOnlineStatus: existing.hideOnlineStatus || 0
       });
     }
@@ -210,9 +217,21 @@ app.post('/api/register', async (req, res) => {
     }
 
     const now = Date.now();
-    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey, lastSeen, hideOnlineStatus) VALUES (?, ?, ?, ?, ?, 0)', [cleanUser, publicKey, hash, encryptedPrivKey, now]);
+    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey, lastSeen, hideOnlineStatus) VALUES (?, ?, ?, ?, ?, 0)', [cleanUser, publicKey, hash, encKeyStr, now]);
     res.json({ id: result.lastID, username: cleanUser, publicKey, encryptedPrivKey, hideOnlineStatus: 0 });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/update-keys', async (req, res) => {
+  const { userId, publicKey, encryptedPrivKey } = req.body;
+  if (!userId || !publicKey || !encryptedPrivKey) return res.status(400).json({ error: 'Missing fields' });
+  const encKeyStr = typeof encryptedPrivKey === 'object' ? JSON.stringify(encryptedPrivKey) : String(encryptedPrivKey);
+  try {
+    await dbRun('UPDATE users SET publicKey = ?, encryptedPrivKey = ? WHERE id = ?', [publicKey, encKeyStr, userId]);
+    res.json({ success: true });
+  } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });

@@ -13,49 +13,49 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 
 :root {
-  --tg-bg: #0e1621;
-  --tg-sidebar: #17212b;
-  --tg-header: #17212b;
-  --tg-active: #2b5278;
-  --tg-hover: #202b36;
-  --tg-bubble-out: #2b5278;
-  --tg-bubble-in: #182533;
-  --tg-blue: #2481cc;
-  --tg-blue-hover: #2a8dd4;
-  --tg-cyan: #3fc5f0;
-  --tg-green: #4fae66;
-  --tg-red: #e53935;
-  --tg-text: #f5f5f5;
-  --tg-text-muted: #7f91a4;
-  --tg-time-out: #7da5ca;
-  --tg-time-in: #6c7883;
-  --tg-border: #101921;
-  --tg-card: #242f3d;
-  --tg-input: #242f3d;
-  --tg-modal-bg: #17212b;
+  --tg-bg: #000000;
+  --tg-sidebar: #0a0a0a;
+  --tg-header: #0a0a0a;
+  --tg-active: #222222;
+  --tg-hover: #1a1a1a;
+  --tg-bubble-out: #222222;
+  --tg-bubble-in: #111111;
+  --tg-blue: #ffffff;
+  --tg-blue-hover: #cccccc;
+  --tg-cyan: #ffffff;
+  --tg-green: #ffffff;
+  --tg-red: #ff3333;
+  --tg-text: #ffffff;
+  --tg-text-muted: #888888;
+  --tg-time-out: #aaaaaa;
+  --tg-time-in: #888888;
+  --tg-border: #222222;
+  --tg-card: #111111;
+  --tg-input: #111111;
+  --tg-modal-bg: #0a0a0a;
   --tg-doodle: rgba(255,255,255,0.025);
 }
 
 [data-theme="light"] {
-  --tg-bg: #8ca4b8;
+  --tg-bg: #f5f5f5;
   --tg-sidebar: #ffffff;
   --tg-header: #ffffff;
-  --tg-active: #3390ec;
-  --tg-hover: #f4f4f5;
-  --tg-bubble-out: #eeffde;
+  --tg-active: #d5d5d5;
+  --tg-hover: #ebebeb;
+  --tg-bubble-out: #e0e0e0;
   --tg-bubble-in: #ffffff;
-  --tg-blue: #3390ec;
-  --tg-blue-hover: #2481cc;
-  --tg-cyan: #3390ec;
-  --tg-green: #4fae66;
-  --tg-red: #e53935;
+  --tg-blue: #000000;
+  --tg-blue-hover: #333333;
+  --tg-cyan: #000000;
+  --tg-green: #000000;
+  --tg-red: #cc0000;
   --tg-text: #000000;
-  --tg-text-muted: #707579;
-  --tg-time-out: #4fae66;
-  --tg-time-in: #a0a0a0;
-  --tg-border: #dfe1e5;
+  --tg-text-muted: #666666;
+  --tg-time-out: #555555;
+  --tg-time-in: #777777;
+  --tg-border: #dddddd;
   --tg-card: #ffffff;
-  --tg-input: #f4f4f5;
+  --tg-input: #ebebeb;
   --tg-modal-bg: #ffffff;
   --tg-doodle: rgba(0,0,0,0.03);
 }
@@ -74,35 +74,31 @@ html,body{
   display: flex; align-items: center; justify-content: center;
   height: 100dvh; padding: 1.5rem; background: var(--tg-bg);
 }
-.login-card {
+.card {
   background: var(--tg-sidebar); border: 1px solid var(--tg-border);
-  border-radius: 20px; padding: 2.5rem 2rem; width: 100%; max-width: 380px;
-  box-shadow: 0 12px 36px rgba(0,0,0,0.4); text-align: center;
+  border-radius: 16px; padding: 2.5rem 2rem; width: 100%; max-width: 360px;
 }
-.login-logo {
-  width: 72px; height: 72px; background: linear-gradient(135deg, #2a8dd4, #1b639e);
-  border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 1.2rem; font-size: 2.2rem; box-shadow: 0 6px 20px rgba(36,129,204,0.4);
-}
-.login-card h1 { font-size: 1.45rem; font-weight: 700; margin-bottom: 0.35rem; letter-spacing: -0.01em; }
-.login-card p { color: var(--tg-text-muted); font-size: 0.85rem; margin-bottom: 1.8rem; line-height: 1.4; }
-.tg-input {
-  width: 100%; background: var(--tg-input); border: 1px solid transparent;
-  border-radius: 12px; padding: 0.85rem 1rem; color: var(--tg-text); font-size: 0.95rem;
-  outline: none; transition: border-color .15s, box-shadow .15s; margin-bottom: 0.85rem;
+.card-icon { font-size: 2.2rem; text-align: center; margin-bottom: 1rem; color: var(--tg-blue); }
+.card h1 { text-align: center; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: .4rem; }
+.card p { text-align: center; color: var(--tg-text-muted); font-size: .8rem; margin-bottom: 2rem; line-height: 1.5; }
+.field {
+  width: 100%; background: var(--tg-input); border: 1px solid var(--tg-border);
+  border-radius: 10px; padding: .85rem 1rem; color: var(--tg-text); font-size: .95rem;
+  outline: none; transition: border-color .15s; margin-bottom: 1rem;
   font-family: inherit;
 }
-.tg-input:focus { border-color: var(--tg-blue); box-shadow: 0 0 0 2px rgba(36,129,204,0.25); }
-.tg-btn {
-  width: 100%; background: var(--tg-blue); color: #fff; border: none;
-  border-radius: 12px; padding: 0.85rem; font-size: 0.95rem; font-weight: 600;
-  cursor: pointer; transition: background .15s, transform .1s;
-  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+.field:focus { border-color: var(--tg-blue); }
+.btn {
+  width: 100%; background: var(--tg-blue); color: var(--tg-bg); border: none;
+  border-radius: 10px; padding: .85rem; font-size: .95rem; font-weight: 600;
+  cursor: pointer; transition: opacity .15s, transform .1s;
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
 }
-.tg-btn:hover { background: var(--tg-blue-hover); }
-.tg-btn:active { transform: scale(0.98); }
-.tg-btn:disabled { opacity: 0.5; pointer-events: none; }
-#login-err { color: var(--tg-red); font-size: 0.8rem; margin-top: 0.8rem; min-height: 1.2rem; }
+.btn:hover { opacity: .9; }
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .4; pointer-events: none; }
+#login-err { color: var(--tg-red); font-size: .8rem; margin-top: .8rem; text-align: center; min-height: 1.2rem; }
+
 
 /* ──── MAIN APP LAYOUT ──── */
 #app { display: none; height: 100dvh; flex-direction: row; position: relative; }
@@ -489,13 +485,16 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 <!-- ──── LOGIN VIEW ──── -->
 <div id="login">
-  <div class="login-card">
-    <div class="login-logo">✈️</div>
+  <div class="card">
+    <div class="card-icon">░</div>
     <h1>SecureChat</h1>
-    <p>Анонимный защищенный мессенджер с E2E шифрованием и групповыми чатами</p>
-    <input id="username" class="tg-input" type="text" placeholder="Имя пользователя" autocomplete="off"/>
-    <input id="password" class="tg-input" type="password" placeholder="Пароль" autocomplete="off"/>
-    <button id="login-btn" class="tg-btn">Войти в мессенджер</button>
+    <p>Минималистичный зашифрованный мессенджер.</p>
+    <form id="login-form">
+      <input id="username" class="field" type="text" placeholder="Ваш никнейм..." maxlength="30" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+      <input id="password" class="field" type="password" placeholder="Пароль..." maxlength="50" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+      <button id="login-btn" type="submit" class="btn">Войти / Зарегистрироваться</button>
+    </form>
+    <button id="reset-login-btn" type="button" class="btn" style="background:transparent;border:1px solid var(--tg-border);color:var(--tg-text);margin-top:0.8rem">Обнулить этот никнейм на сервере</button>
     <div id="login-err"></div>
   </div>
 </div>
@@ -747,15 +746,16 @@ async function genKeys(){
 }
 async function importPub(jwk){ return crypto.subtle.importKey('jwk', jwk, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']); }
 async function importPriv(jwk){ return crypto.subtle.importKey('jwk', jwk, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']); }
-function buf2b64(b){
-  const bytes = new Uint8Array(b); let binary = ''; const len = bytes.byteLength; const chunk = 0x8000;
-  for(let i=0; i<len; i+=chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i+chunk, len)));
-  return btoa(binary);
-}
 function b642buf(s){
-  const b = atob(s), a = new Uint8Array(b.length);
-  for(let i=0; i<b.length; i++) a[i] = b.charCodeAt(i);
-  return a.buffer;
+  if (!s || typeof s !== 'string') return new ArrayBuffer(0);
+  try {
+    const b = atob(s), a = new Uint8Array(b.length);
+    for(let i=0; i<b.length; i++) a[i] = b.charCodeAt(i);
+    return a.buffer;
+  } catch(e) {
+    console.warn('b642buf invalid base64 string:', s);
+    return new ArrayBuffer(0);
+  }
 }
 async function encFor(text, pubJwk){
   const pub = await importPub(pubJwk);
@@ -788,8 +788,20 @@ async function wrapPrivKey(privJwk, password){
   return { c: buf2b64(enc), v: buf2b64(iv.buffer) };
 }
 async function unwrapPrivKey(wrappedObj, password){
+  if (!wrappedObj) return null;
+  let obj = wrappedObj;
+  if (typeof wrappedObj === 'string') {
+    try { obj = JSON.parse(wrappedObj); } catch(e){}
+  }
+  if (!obj || typeof obj !== 'object' || !obj.c || !obj.v) {
+    throw new Error('Key structure corrupted');
+  }
   const kek = await getKek(password);
-  const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(b642buf(wrappedObj.v)) }, kek, b642buf(wrappedObj.c));
+  const dec = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(b642buf(obj.v)) },
+    kek,
+    b642buf(obj.c)
+  );
   return JSON.parse(new TextDecoder().decode(dec));
 }
 
@@ -917,13 +929,16 @@ const usernameIn = document.getElementById('username');
 const passwordIn = document.getElementById('password');
 const loginBtn = document.getElementById('login-btn');
 const loginErr = document.getElementById('login-err');
+const loginForm = document.getElementById('login-form');
+const resetLoginBtn = document.getElementById('reset-login-btn');
 
 if (currentTheme === 'light') {
   document.documentElement.setAttribute('data-theme', 'light');
   document.getElementById('theme-label').textContent = 'Дневной режим';
 }
 
-loginBtn.onclick = async () => {
+loginForm.onsubmit = async (e) => {
+  e.preventDefault();
   const username = usernameIn.value.trim();
   const password = passwordIn.value.trim();
   if (!username || !password) return (loginErr.textContent = 'Введите имя и пароль');
@@ -941,14 +956,47 @@ loginBtn.onclick = async () => {
 
     let privJwk = keyPair.priv;
     if (regData.encryptedPrivKey) {
-      privJwk = await unwrapPrivKey(regData.encryptedPrivKey, password);
+      try {
+        privJwk = await unwrapPrivKey(regData.encryptedPrivKey, password);
+      } catch(unwrapErr) {
+        console.warn('Key unwrap failed, re-generating fresh keypair:', unwrapErr);
+        const freshKeys = await genKeys();
+        const freshWrapped = await wrapPrivKey(freshKeys.priv, password);
+        await fetch('/api/update-keys', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: regData.id, publicKey: freshKeys.pub, encryptedPrivKey: freshWrapped })
+        });
+        privJwk = freshKeys.priv;
+        regData.publicKey = freshKeys.pub;
+      }
     }
 
-    me = { id: regData.userId, username, pubKey: regData.publicKey, privKey: privJwk };
+    me = { id: regData.userId || regData.id, username: regData.username || username, pubKey: regData.publicKey || keyPair.pub, privKey: privJwk };
     startApp();
   } catch(e) {
+    console.error('Login error:', e);
     loginErr.textContent = e.message;
     loginBtn.disabled = false;
+  }
+};
+
+resetLoginBtn.onclick = async () => {
+  const username = usernameIn.value.trim();
+  const password = passwordIn.value.trim();
+  if(!username || !password){loginErr.textContent='Введите никнейм и пароль для обнуления';return}
+  if(!confirm(`Обнулить аккаунт "${username}" и удалить его с сервера?`)) return;
+  try {
+    const res = await fetch('/api/reset-account', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({username, password})
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || 'Ошибка сброса');
+    loginErr.style.color = 'var(--tg-green)';
+    loginErr.textContent = 'Аккаунт обнулен!';
+    setTimeout(() => { loginErr.textContent = ''; loginErr.style.color = 'var(--tg-red)'; }, 2000);
+  } catch(e) {
+    loginErr.textContent = e.message;
   }
 };
 
