@@ -1465,12 +1465,22 @@ async function removeFriend(user){
 
 function updateFriendToggleBtn(){
   if(!peer) return;
-  if(isFriend(peer.id)){
-    friendToggleBtn.textContent='✓ В друзьях';
-    friendToggleBtn.style.opacity='0.6';
-  }else{
-    friendToggleBtn.textContent='+ В друзья';
-    friendToggleBtn.style.opacity='1';
+  if (peer.id === me.id) {
+    friendToggleBtn.style.display = 'none';
+    callAudioBtn.style.display = 'none';
+    callVideoBtn.style.display = 'none';
+  } else {
+    friendToggleBtn.style.display = 'block';
+    callAudioBtn.style.display = 'flex';
+    callVideoBtn.style.display = 'flex';
+    
+    if(isFriend(peer.id)){
+      friendToggleBtn.textContent='✓ В друзьях';
+      friendToggleBtn.style.opacity='0.6';
+    }else{
+      friendToggleBtn.textContent='+ В друзья';
+      friendToggleBtn.style.opacity='1';
+    }
   }
 }
 
