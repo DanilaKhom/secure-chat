@@ -1280,8 +1280,13 @@ function stopRingtone() {
 
 async function getMedia(isVideo) {
   try {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const constraints = {
-      audio: { echoCancellation: true },
+      audio: isIOS ? {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      } : { echoCancellation: true },
       video: isVideo ? { facingMode: 'user' } : false
     };
     let stream;
@@ -1308,61 +1313,16 @@ async function getMedia(isVideo) {
   }
 }
 
-// Detect iOS Safari (uses MediaRecorder path)
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-// ─── Audio Relay ──────────────────────────────────────────────────────────────
-let mediaRecorderRelay = null;
-
+// ─── Audio Relay (Universal ScriptProcessor PCM) ─────────────────────────────
 function startAudioRelay(stream, targetId) {
-  if (isIOS) {
-    // iOS Safari: ScriptProcessorNode does NOT work. Use MediaRecorder.
-    _startAudioRelayMediaRecorder(stream, targetId);
-  } else {
-    // Mac Chrome/Safari, Android Chrome: use ScriptProcessorNode (reliable, low-latency PCM)
-    _startAudioRelayScriptProcessor(stream, targetId);
-  }
-}
-
-function _startAudioRelayMediaRecorder(stream, targetId) {
   try {
-    // iOS Safari supports audio/mp4 in MediaRecorder
-    let mimeType = '';
-    const preferred = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
-    for (const t of preferred) {
-      if (MediaRecorder.isTypeSupported(t)) { mimeType = t; break; }
-    }
-
-    const audioStream = new MediaStream(stream.getAudioTracks());
-    const opts = mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 };
-    mediaRecorderRelay = new MediaRecorder(audioStream, opts);
-
-    mediaRecorderRelay.ondataavailable = (e) => {
-      if (!e.data || e.data.size === 0 || callState !== 'active' || !socket) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (callState === 'active' && socket) {
-          socket.emit('call_audio_blob', { toId: targetId, fromId: me.id, blob: reader.result, mimeType });
-        }
-      };
-      reader.readAsDataURL(e.data);
-    };
-
-    mediaRecorderRelay.start(200); // 200ms chunks
-    console.log('[AudioRelay] iOS MediaRecorder started, mimeType:', mimeType || '(default)');
-  } catch(e) {
-    console.warn('[AudioRelay] MediaRecorder failed on iOS, trying ScriptProcessor:', e);
-    _startAudioRelayScriptProcessor(stream, targetId);
-  }
-}
-
-function _startAudioRelayScriptProcessor(stream, targetId) {
-  try {
+    // If not created yet (though it should be by now via preInitAudio), create it
     if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
       audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
-    audioRelayCtx.resume();
+    if (audioRelayCtx.state === 'suspended') {
+      audioRelayCtx.resume();
+    }
 
     const rate = audioRelayCtx.sampleRate || 44100;
     audioSourceNode = audioRelayCtx.createMediaStreamSource(stream);
@@ -1376,16 +1336,18 @@ function _startAudioRelayScriptProcessor(stream, targetId) {
       for (let i = 0; i < input.length; i++) {
         const s = Math.max(-1, Math.min(1, input[i]));
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        output[i] = 0; // silence to speakers
+        // Output microscopic DC offset to keep iOS AudioContext active
+        output[i] = 1e-7;
       }
-      if (socket && callState === 'active') {
+      if (socket && targetId && callState === 'active') {
         socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer, rate });
       }
     };
 
     audioSourceNode.connect(audioScriptNode);
+    // Connect to destination to ensure iOS AudioContext keeps the processor running
     audioScriptNode.connect(audioRelayCtx.destination);
-    console.log('[AudioRelay] ScriptProcessor started, rate:', rate);
+    console.log('[AudioRelay] ScriptProcessor PCM relay started, rate:', rate);
   } catch(err) {
     console.warn('[AudioRelay] ScriptProcessor failed:', err);
   }
