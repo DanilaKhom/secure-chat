@@ -83,6 +83,12 @@ async function initDb() {
   try {
     await db.execute('ALTER TABLE users ADD COLUMN encryptedPrivKey TEXT');
   } catch (e) {}
+  try {
+    await db.execute('ALTER TABLE users ADD COLUMN lastSeen INTEGER');
+  } catch (e) {}
+  try {
+    await db.execute('ALTER TABLE users ADD COLUMN hideOnlineStatus INTEGER DEFAULT 0');
+  } catch (e) {}
   console.log('DB ready');
 
   // Clean up messages older than 24 hours periodically (every 10 minutes)
@@ -155,12 +161,16 @@ app.post('/api/register', async (req, res) => {
         return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
       }
       
+      // Update last seen
+      await dbRun('UPDATE users SET lastSeen = ? WHERE id = ?', [Date.now(), existing.id]);
+      
       // Return existing user info so client can decrypt their private key
       return res.json({ 
         id: existing.id, 
         username: existing.username, 
         publicKey: existing.publicKey,
-        encryptedPrivKey: existing.encryptedPrivKey
+        encryptedPrivKey: existing.encryptedPrivKey,
+        hideOnlineStatus: existing.hideOnlineStatus || 0
       });
     }
 
@@ -168,8 +178,9 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'Для регистрации нужны ключи шифрования' });
     }
 
-    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey) VALUES (?, ?, ?, ?)', [cleanUser, publicKey, hash, encryptedPrivKey]);
-    res.json({ id: result.lastID, username: cleanUser, publicKey, encryptedPrivKey });
+    const now = Date.now();
+    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey, lastSeen, hideOnlineStatus) VALUES (?, ?, ?, ?, ?, 0)', [cleanUser, publicKey, hash, encryptedPrivKey, now]);
+    res.json({ id: result.lastID, username: cleanUser, publicKey, encryptedPrivKey, hideOnlineStatus: 0 });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -337,8 +348,49 @@ app.get('/api/users/search', async (req, res) => {
   }
 });
 
+app.get('/api/users/statuses', async (req, res) => {
+  try {
+    const users = await dbAll('SELECT id, lastSeen, hideOnlineStatus FROM users');
+    const statuses = {};
+    for (const u of users) {
+      const isConnected = userSockets.has(String(u.id));
+      const isHidden = u.hideOnlineStatus === 1;
+      statuses[u.id] = {
+        isOnline: isConnected && !isHidden,
+        lastSeen: isHidden ? null : u.lastSeen,
+        hidden: isHidden
+      };
+    }
+    res.json(statuses);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/user/privacy', async (req, res) => {
+  const { userId, hideOnlineStatus } = req.body;
+  if (!userId) return res.status(400).json({ error: 'Missing userId' });
+  try {
+    const val = hideOnlineStatus ? 1 : 0;
+    await dbRun('UPDATE users SET hideOnlineStatus = ? WHERE id = ?', [val, userId]);
+    
+    // Broadcast status change to all clients
+    const isConnected = userSockets.has(String(userId));
+    io.emit('user_status_change', {
+      userId: Number(userId),
+      isOnline: val === 1 ? false : isConnected,
+      lastSeen: val === 1 ? null : Date.now(),
+      hidden: val === 1
+    });
+    
+    res.json({ success: true, hideOnlineStatus: val });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/users/:id', async (req, res) => {
-  const user = await dbGet('SELECT id, username, publicKey FROM users WHERE id = ?', [req.params.id]);
+  const user = await dbGet('SELECT id, username, publicKey, lastSeen, hideOnlineStatus FROM users WHERE id = ?', [req.params.id]);
   if (user) res.json(user); else res.status(404).json({ error: 'Not found' });
 });
 
@@ -374,12 +426,45 @@ app.get('/api/chats/:userId', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('Connected:', socket.id);
 
-  socket.on('register', (userId) => {
+  socket.on('register', async (userId) => {
     const uid = String(userId);
     if (!userSockets.has(uid)) userSockets.set(uid, new Set());
     userSockets.get(uid).add(socket.id);
     socket.data.userId = uid;
+    
+    const now = Date.now();
+    await dbRun('UPDATE users SET lastSeen = ? WHERE id = ?', [now, uid]);
+
+    try {
+      const u = await dbGet('SELECT hideOnlineStatus FROM users WHERE id = ?', [uid]);
+      const isHidden = u && u.hideOnlineStatus === 1;
+      
+      io.emit('user_status_change', {
+        userId: Number(uid),
+        isOnline: !isHidden,
+        lastSeen: isHidden ? null : now,
+        hidden: isHidden
+      });
+    } catch(e){}
+
     console.log(`User ${uid} registered (socket ${socket.id}). Online: ${[...userSockets.keys()]}`);
+  });
+
+  socket.on('get_all_statuses', async () => {
+    try {
+      const users = await dbAll('SELECT id, lastSeen, hideOnlineStatus FROM users');
+      const statuses = {};
+      for (const u of users) {
+        const isConnected = userSockets.has(String(u.id));
+        const isHidden = u.hideOnlineStatus === 1;
+        statuses[u.id] = {
+          isOnline: isConnected && !isHidden,
+          lastSeen: isHidden ? null : u.lastSeen,
+          hidden: isHidden
+        };
+      }
+      socket.emit('all_statuses', statuses);
+    } catch(e){}
   });
 
   socket.on('private_message', async (data) => {
@@ -511,11 +596,28 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     const uid = socket.data.userId;
     if (uid && userSockets.has(uid)) {
       userSockets.get(uid).delete(socket.id);
-      if (userSockets.get(uid).size === 0) userSockets.delete(uid);
+      if (userSockets.get(uid).size === 0) {
+        userSockets.delete(uid);
+        
+        const now = Date.now();
+        await dbRun('UPDATE users SET lastSeen = ? WHERE id = ?', [now, uid]);
+        
+        try {
+          const u = await dbGet('SELECT hideOnlineStatus FROM users WHERE id = ?', [uid]);
+          const isHidden = u && u.hideOnlineStatus === 1;
+          
+          io.emit('user_status_change', {
+            userId: Number(uid),
+            isOnline: false,
+            lastSeen: isHidden ? null : now,
+            hidden: isHidden
+          });
+        } catch(e){}
+      }
     }
     console.log('Disconnected:', socket.id);
   });

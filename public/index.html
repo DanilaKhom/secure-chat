@@ -142,6 +142,17 @@ html,body{
   display:flex;align-items:center;justify-content:center;
   font-weight:700;font-size:.85rem;color:var(--accent);flex-shrink:0;
 }
+.ci-av-wrap{position:relative;display:inline-block;flex-shrink:0}
+.ci-online-dot{
+  position:absolute;bottom:0;right:0;width:10px;height:10px;
+  background:#2ecc71;border:2px solid var(--panel);border-radius:50%;
+  box-shadow:0 0 6px rgba(46,204,113,0.8);
+}
+.status-online{color:#2ecc71;font-weight:500;display:inline-flex;align-items:center;gap:4px}
+.status-dot-pulse{
+  width:7px;height:7px;background:#2ecc71;border-radius:50%;
+  box-shadow:0 0 6px rgba(46,204,113,0.9);display:inline-block;
+}
 .ci-info{flex:1;min-width:0}
 .ci-name{font-weight:500;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ci-sub{font-size:.7rem;color:var(--muted);margin-top:1px}
@@ -153,6 +164,48 @@ html,body{
 .ci-btn:hover{opacity:.85}
 .ci-btn.remove{background:transparent;color:var(--muted);border:1px solid var(--border)}
 .ci-btn.remove:hover{color:var(--red);border-color:var(--red)}
+
+.settings-btn{
+  background:rgba(255,255,255,0.06);border:1px solid var(--border);
+  color:var(--text);border-radius:6px;padding:.3rem .55rem;
+  font-size:.85rem;cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;
+}
+.settings-btn:hover{background:rgba(255,255,255,0.15);border-color:var(--border-light)}
+
+.settings-modal-overlay{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(0,0,0,0.8);backdrop-filter:blur(8px);
+  z-index:9999;display:none;align-items:center;justify-content:center;
+}
+.settings-modal-overlay.active{display:flex}
+.settings-card{
+  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  width:92%;max-width:420px;padding:1.4rem;box-shadow:0 20px 40px rgba(0,0,0,0.6);
+  color:var(--text);
+}
+.settings-card h3{margin:0 0 1rem;font-size:1.1rem;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+.settings-row{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:1rem;padding:.9rem 0;border-top:1px solid var(--border);
+}
+.settings-desc{font-size:.75rem;color:var(--muted);line-height:1.4;margin-top:.25rem}
+.modal-close-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem}
+.modal-close-btn:hover{color:var(--text)}
+
+/* Toggle Switch */
+.switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider{
+  position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;
+  background-color:rgba(255,255,255,0.2);transition:.25s;border-radius:24px;
+}
+.slider:before{
+  position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;
+  background-color:#fff;transition:.25s;border-radius:50%;
+}
+input:checked + .slider{background-color:#2ecc71}
+input:checked + .slider:before{transform:translateX(20px)}
 
 .empty-hint{text-align:center;color:var(--muted);font-size:.8rem;padding:2rem 1rem;line-height:1.5}
 
@@ -394,11 +447,14 @@ html,body{
       <div class="sb-header">
         <div class="me-row">
           <div class="av" id="my-av">?</div>
-          <div>
+          <div style="overflow:hidden">
             <div class="me-name" id="my-name">—</div>
-            <div class="me-status"><span class="s-dot"></span>Online</div>
+            <div class="me-status" id="my-status-text"><span class="s-dot"></span>Online</div>
           </div>
-          <button id="logout-btn" class="ci-btn remove" style="margin-left:auto">Выйти</button>
+          <div style="display:flex;gap:.35rem;margin-left:auto">
+            <button id="settings-btn" class="settings-btn" title="Настройки">⚙️</button>
+            <button id="logout-btn" class="ci-btn remove">Выйти</button>
+          </div>
         </div>
 
         <div class="tabs">
@@ -432,10 +488,13 @@ html,body{
       <div id="chat-view" style="display:none;flex-direction:column;height:100%">
         <div class="chat-hdr">
           <button class="back-btn" id="back-btn">←</button>
-          <div class="chat-hdr-av" id="peer-av">?</div>
-          <div>
+          <div class="ci-av-wrap">
+            <div class="chat-hdr-av" id="peer-av">?</div>
+            <div class="ci-online-dot" id="peer-av-dot" style="display:none"></div>
+          </div>
+          <div style="min-width:0;flex:1">
             <div class="chat-hdr-name" id="peer-name">—</div>
-            <div class="chat-hdr-sub">🔒 Зашифровано</div>
+            <div class="chat-hdr-sub" id="peer-status">🔒 Зашифровано</div>
           </div>
           <button class="friend-toggle-btn" id="friend-toggle-btn" style="display:none"></button>
           <div class="chat-actions">
@@ -480,7 +539,32 @@ html,body{
 
 <div id="toast"></div>
 
-<!-- WebRTC Call Overlays -->
+<!-- Settings Modal -->
+<div class="settings-modal-overlay" id="settings-modal">
+  <div class="settings-card">
+    <h3>
+      <span>⚙️ Настройки</span>
+      <button class="modal-close-btn" id="close-settings-btn">✕</button>
+    </h3>
+    
+    <div class="settings-row">
+      <div>
+        <div style="font-weight:600;font-size:0.9rem">Скрыть статус «В сети»</div>
+        <div class="settings-desc">
+          Если включено, никто не сможет видеть, когда вы в сети или точное время вашего последнего визита (будет отображаться «был(а) недавно»).
+        </div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="toggle-hide-online">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div style="margin-top:1.4rem;display:flex;justify-content:flex-end">
+      <button class="ci-btn" id="save-settings-btn" style="padding:0.55rem 1.2rem;font-size:0.85rem">Закрыть</button>
+    </div>
+  </div>
+</div>
 <div class="call-overlay" id="incoming-call-modal">
   <div class="call-avatar" id="incoming-avatar">?</div>
   <div class="call-name" id="incoming-name">Имя</div>
@@ -702,6 +786,8 @@ let myFriends=[];     // list of friend objects
 let incomingRequests=[]; // list of pending requests
 let pending={};       // senderId -> [{text,ts}]
 let selectedImageData=null;
+let userStatuses={};   // userId -> { isOnline, lastSeen, hidden }
+let myHideOnline=false;
 
 const loginEl=document.getElementById('login');
 const appEl=document.getElementById('app');
@@ -711,6 +797,7 @@ const upassEl=document.getElementById('upass');
 const loginErr=document.getElementById('login-err');
 const myAv=document.getElementById('my-av');
 const myName=document.getElementById('my-name');
+const myStatusText=document.getElementById('my-status-text');
 const tabChats=document.getElementById('tab-chats');
 const tabFriends=document.getElementById('tab-friends');
 const tabSearch=document.getElementById('tab-search');
@@ -721,7 +808,9 @@ const chatListEl=document.getElementById('chat-list');
 const welcomeEl=document.getElementById('welcome');
 const chatViewEl=document.getElementById('chat-view');
 const peerAv=document.getElementById('peer-av');
+const peerAvDot=document.getElementById('peer-av-dot');
 const peerName=document.getElementById('peer-name');
+const peerStatus=document.getElementById('peer-status');
 const friendToggleBtn=document.getElementById('friend-toggle-btn');
 const msgsEl=document.getElementById('msgs');
 const msgsEmpty=document.getElementById('msgs-empty');
@@ -730,6 +819,101 @@ const sendBtn=document.getElementById('send-btn');
 const backBtn=document.getElementById('back-btn');
 const sidebarEl=document.getElementById('sidebar');
 const toastEl=document.getElementById('toast');
+
+const settingsBtn=document.getElementById('settings-btn');
+const settingsModal=document.getElementById('settings-modal');
+const closeSettingsBtn=document.getElementById('close-settings-btn');
+const saveSettingsBtn=document.getElementById('save-settings-btn');
+const toggleHideOnline=document.getElementById('toggle-hide-online');
+
+// Last Seen and Online Formatter
+function formatLastSeen(status){
+  if(!status || status.hidden){
+    return 'был(а) недавно';
+  }
+  if(status.isOnline){
+    return '<span class="status-online"><span class="status-dot-pulse"></span> в сети</span>';
+  }
+  if(!status.lastSeen){
+    return 'был(а) недавно';
+  }
+  const diffMs = Date.now() - status.lastSeen;
+  const diffMins = Math.floor(diffMs / 60000);
+  
+  if(diffMins < 1){
+    return 'был(а) только что';
+  }
+  if(diffMins < 60){
+    let word = 'минут назад';
+    if(diffMins % 10 === 1 && diffMins % 100 !== 11) word = 'минуту назад';
+    else if([2,3,4].includes(diffMins % 10) && ![12,13,14].includes(diffMins % 100)) word = 'минуты назад';
+    return `был(а) ${diffMins} ${word}`;
+  }
+  
+  const d = new Date(status.lastSeen);
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+  
+  const now = new Date();
+  const isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  if(isToday){
+    return `был(а) сегодня в ${hours}:${mins}`;
+  }
+  
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = d.getDate() === yesterday.getDate() && d.getMonth() === yesterday.getMonth() && d.getFullYear() === yesterday.getFullYear();
+  if(isYesterday){
+    return `был(а) вчера в ${hours}:${mins}`;
+  }
+  
+  const months = ['янв.','фев.','мар.','апр.','мая','июн.','июл.','авг.','сен.','окт.','нояб.','дек.'];
+  return `был(а) ${d.getDate()} ${months[d.getMonth()]} в ${hours}:${mins}`;
+}
+
+function updatePeerStatusHeader(){
+  if(!peer) return;
+  const st = userStatuses[peer.id];
+  if(peerStatus){
+    peerStatus.innerHTML = formatLastSeen(st);
+  }
+  if(peerAvDot){
+    peerAvDot.style.display = (st && st.isOnline && !st.hidden) ? 'block' : 'none';
+  }
+}
+
+// Settings Handlers
+settingsBtn.onclick=()=>{
+  toggleHideOnline.checked = !!myHideOnline;
+  settingsModal.classList.add('active');
+};
+closeSettingsBtn.onclick=()=>settingsModal.classList.remove('active');
+saveSettingsBtn.onclick=()=>settingsModal.classList.remove('active');
+settingsModal.onclick=(e)=>{
+  if(e.target === settingsModal) settingsModal.classList.remove('active');
+};
+
+toggleHideOnline.onchange=async()=>{
+  myHideOnline = toggleHideOnline.checked;
+  localStorage.setItem('hideOnlineStatus_' + me.id, myHideOnline ? '1' : '0');
+  
+  if(myStatusText){
+    myStatusText.innerHTML = myHideOnline 
+      ? '<span style="color:var(--muted)">Статус скрыт</span>' 
+      : '<span class="s-dot"></span>Online';
+  }
+  
+  try{
+    await fetch('/api/user/privacy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: me.id, hideOnlineStatus: myHideOnline ? 1 : 0 })
+    });
+    toast(myHideOnline ? '🔒 Статус «В сети» скрыт' : '👁️ Статус «В сети» виден');
+  }catch(e){
+    console.error('privacy toggle err:', e);
+  }
+};
 
 const imgInput=document.getElementById('img-input');
 const attachBtn=document.getElementById('attach-btn');
@@ -1583,6 +1767,20 @@ function startApp(){
   appEl.style.display='flex';
   myAv.textContent=me.username[0].toUpperCase();
   myName.textContent=me.username;
+  
+  // Load saved privacy setting
+  const savedPrivacy = localStorage.getItem('hideOnlineStatus_' + me.id);
+  if(savedPrivacy !== null){
+    myHideOnline = savedPrivacy === '1';
+  } else if(me.hideOnlineStatus !== undefined){
+    myHideOnline = me.hideOnlineStatus === 1;
+  }
+  if(myStatusText){
+    myStatusText.innerHTML = myHideOnline 
+      ? '<span style="color:var(--muted)">Статус скрыт</span>' 
+      : '<span class="s-dot"></span>Online';
+  }
+
   connectSocket();
   loadFriends();
   loadRecent();
@@ -1590,8 +1788,9 @@ function startApp(){
     if(me && (!searchEl.value || !searchEl.value.trim())){
       loadFriends();
       if(activeTab==='chats') loadRecent();
+      if(socket) socket.emit('get_all_statuses');
     }
-  }, 8000);
+  }, 10000);
 }
 
 // SOCKET
@@ -1599,9 +1798,30 @@ function connectSocket(){
   socket=io({transports:['websocket','polling']});
   socket.on('connect',()=>{
     socket.emit('register',me.id);
+    socket.emit('get_all_statuses');
     toast('Подключено');
   });
   socket.on('disconnect',()=>toast('Соединение прервано'));
+
+  socket.on('all_statuses', (statuses)=>{
+    userStatuses = statuses || {};
+    updatePeerStatusHeader();
+    if(activeTab==='chats') loadRecent();
+    else if(activeTab==='friends') renderFriendsList();
+  });
+
+  socket.on('user_status_change', (data)=>{
+    userStatuses[data.userId] = {
+      isOnline: data.isOnline,
+      lastSeen: data.lastSeen,
+      hidden: data.hidden
+    };
+    if(peer && String(peer.id) === String(data.userId)){
+      updatePeerStatusHeader();
+    }
+    if(activeTab==='chats') loadRecent();
+    else if(activeTab==='friends') renderFriendsList();
+  });
 
   socket.on('friend_request', async data=>{
     toast('Заявка в друзья от: '+data.senderName);
@@ -1838,18 +2058,23 @@ function renderSearchResults(users, totalOnServer){
   }
   users.forEach(u=>{
     const isF=isFriend(u.id);
+    const st = userStatuses[u.id];
+    const isOnline = st && st.isOnline && !st.hidden;
     const ci=document.createElement('div');
     ci.className='ci'+(peer&&String(peer.id)===String(u.id)?' active':'');
     ci.innerHTML=`
-      <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+      <div class="ci-av-wrap">
+        <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+        ${isOnline ? '<div class="ci-online-dot"></div>' : ''}
+      </div>
       <div class="ci-info">
         <div class="ci-name">${esc(u.username)}</div>
-        <div class="ci-sub">${isF?'У вас в друзьях':'Пользователь'}</div>
+        <div class="ci-sub">${formatLastSeen(st)}</div>
       </div>
       <button class="ci-btn ${isF?'remove':''}">${isF?'Удалить':'+ Друг'}</button>
     `;
     ci.querySelector('.ci-info').onclick=()=>openChat(u);
-    ci.querySelector('.ci-av').onclick=()=>openChat(u);
+    ci.querySelector('.ci-av-wrap').onclick=()=>openChat(u);
     ci.querySelector('.ci-btn').onclick=(e)=>{
       e.stopPropagation();
       if(isF) removeFriend(u); else addFriend(u);
@@ -1905,18 +2130,23 @@ function renderFriendsList(){
   }
   myFriends.forEach(u=>{
     const hasPend=pending[String(u.id)]?.length>0;
+    const st = userStatuses[u.id];
+    const isOnline = st && st.isOnline && !st.hidden;
     const ci=document.createElement('div');
     ci.className='ci'+(peer&&String(peer.id)===String(u.id)?' active':'');
     ci.innerHTML=`
-      <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+      <div class="ci-av-wrap">
+        <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+        ${isOnline ? '<div class="ci-online-dot"></div>' : ''}
+      </div>
       <div class="ci-info">
         <div class="ci-name">${esc(u.username)}${hasPend?' 🔴':''}</div>
-        <div class="ci-sub">В друзьях</div>
+        <div class="ci-sub">${formatLastSeen(st)}</div>
       </div>
       <button class="ci-btn remove">✕</button>
     `;
     ci.querySelector('.ci-info').onclick=()=>openChat(u);
-    ci.querySelector('.ci-av').onclick=()=>openChat(u);
+    ci.querySelector('.ci-av-wrap').onclick=()=>openChat(u);
     ci.querySelector('.ci-btn').onclick=(e)=>{
       e.stopPropagation();
       removeFriend(u);
@@ -1946,13 +2176,18 @@ function renderRecentList(users){
   users.forEach(u=>{
     const hasPend=pending[String(u.id)]?.length>0;
     const isF=isFriend(u.id);
+    const st = userStatuses[u.id];
+    const isOnline = st && st.isOnline && !st.hidden;
     const ci=document.createElement('div');
     ci.className='ci'+(peer&&String(peer.id)===String(u.id)?' active':'');
     ci.innerHTML=`
-      <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+      <div class="ci-av-wrap">
+        <div class="ci-av">${esc(u.username[0].toUpperCase())}</div>
+        ${isOnline ? '<div class="ci-online-dot"></div>' : ''}
+      </div>
       <div class="ci-info">
         <div class="ci-name">${esc(u.username)}${hasPend?' 🔴':''}</div>
-        <div class="ci-sub">${isF?'Друг':'Чаты'}</div>
+        <div class="ci-sub">${formatLastSeen(st)}</div>
       </div>
     `;
     ci.onclick=()=>openChat(u);
@@ -1971,6 +2206,7 @@ async function openChat(user){
   peerAv.textContent=user.username[0].toUpperCase();
   peerName.textContent=user.username;
   updateFriendToggleBtn();
+  updatePeerStatusHeader();
 
   msgsEl.innerHTML='';
   msgsEmpty.style.display='flex';
