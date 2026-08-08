@@ -1082,22 +1082,28 @@ async function getMedia(isVideo) {
         noiseSuppression: true,
         autoGainControl: true
       },
-      video: isVideo ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } : false
+      video: isVideo ? { facingMode: 'user' } : false
     };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      console.warn('Advanced constraints failed, trying basic getUserMedia:', err);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+    }
     localStream = stream;
-    if (isVideo) {
+    if (isVideo && stream.getVideoTracks().length > 0) {
       localVideo.srcObject = stream;
-      videoContainer.classList.add('active');
+      if (videoContainer) videoContainer.classList.add('active');
       btnToggleVid.style.display = 'flex';
     } else {
-      videoContainer.classList.remove('active');
+      if (videoContainer) videoContainer.classList.remove('active');
       btnToggleVid.style.display = 'none';
     }
     return stream;
   } catch (e) {
     console.error('getUserMedia err:', e);
-    toast('Ошибка доступа к микрофону/камере');
+    toast('Ошибка доступа к микрофону/камере. Разрешите доступ в настройках.');
     throw e;
   }
 }
@@ -1105,13 +1111,14 @@ async function getMedia(isVideo) {
 function startAudioRelay(stream, targetId) {
   try {
     if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
-      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
     if (audioRelayCtx.state === 'suspended') {
       audioRelayCtx.resume();
     }
+    const currentRate = audioRelayCtx.sampleRate || 44100;
     audioSourceNode = audioRelayCtx.createMediaStreamSource(stream);
-    audioScriptNode = audioRelayCtx.createScriptProcessor(2048, 1, 1);
+    audioScriptNode = audioRelayCtx.createScriptProcessor(4096, 1, 1);
     audioScriptNode.onaudioprocess = (e) => {
       if (callState !== 'active') return;
       const input = e.inputBuffer.getChannelData(0);
@@ -1121,27 +1128,28 @@ function startAudioRelay(stream, targetId) {
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
       }
       if (socket && targetId && callState === 'active') {
-        socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer });
+        socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer, rate: currentRate });
       }
     };
     audioSourceNode.connect(audioScriptNode);
     audioScriptNode.connect(audioRelayCtx.destination);
   } catch (err) {
-    console.error('startAudioRelay err:', err);
+    console.warn('startAudioRelay non-fatal err:', err);
   }
 }
 
-function playIncomingPCM(arrayBuffer) {
+function playIncomingPCM(arrayBuffer, rate) {
   if (callState !== 'active') return;
   try {
     if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
-      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
     if (audioRelayCtx.state === 'suspended') {
       audioRelayCtx.resume();
     }
     const pcm16 = new Int16Array(arrayBuffer);
-    const audioBuffer = audioRelayCtx.createBuffer(1, pcm16.length, 16000);
+    const sampleRate = rate || audioRelayCtx.sampleRate || 44100;
+    const audioBuffer = audioRelayCtx.createBuffer(1, pcm16.length, sampleRate);
     const channelData = audioBuffer.getChannelData(0);
     for (let i = 0; i < pcm16.length; i++) {
       channelData[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7FFF);
@@ -1152,12 +1160,12 @@ function playIncomingPCM(arrayBuffer) {
     
     const now = audioRelayCtx.currentTime;
     if (nextPlayTime < now) {
-      nextPlayTime = now + 0.04;
+      nextPlayTime = now + 0.02;
     }
     source.start(nextPlayTime);
     nextPlayTime += audioBuffer.duration;
   } catch(e){
-    console.error('playIncomingPCM err:', e);
+    console.warn('playIncomingPCM err:', e);
   }
 }
 
@@ -1311,25 +1319,31 @@ async function startCall(isVideo) {
   iceCandidateQueue = [];
   remoteDescSet = false;
   
+  remoteAudio.play().catch(()=>{});
+  showActiveModal(peer.username);
+  playRingtone();
+
   try {
-    remoteAudio.play().catch(()=>{});
-    
     await getMedia(isVideo);
-    showActiveModal(peer.username);
-    playRingtone();
-    
-    // Start low-latency guaranteed relay
+  } catch (e) {
+    console.error('getMedia err in startCall:', e);
+    endCall();
+    return;
+  }
+
+  if (localStream) {
     startAudioRelay(localStream, peer.id);
     if (isVideo) startVideoRelay(peer.id);
-    
+  }
+
+  try {
     rtcPeer = createPeerConnection(peer.id);
     const offer = await rtcPeer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
     await rtcPeer.setLocalDescription(offer);
     
     socket.emit('webrtc_offer', { toId: peer.id, fromId: me.id, offer, isVideo });
   } catch (e) {
-    console.error('[WebRTC] startCall err:', e);
-    endCall();
+    console.warn('[WebRTC] startCall WebRTC warning, relay will handle audio:', e);
   }
 }
 
@@ -1382,20 +1396,23 @@ btnAcceptCall.onclick = async () => {
   currentCallIsVideo = data.isVideo;
   callState = 'active';
   
+  remoteAudio.play().catch(()=>{});
+  showActiveModal(data.senderName);
+  activeStatus.textContent = '00:00';
+  startCallTimer();
+
   try {
-    remoteAudio.play().catch(()=>{});
-    
     await getMedia(data.isVideo);
-    showActiveModal(data.senderName);
-    
-    // Connected immediately on accept
-    activeStatus.textContent = '00:00';
-    startCallTimer();
-    
-    // Start low-latency guaranteed relay
+  } catch (e) {
+    console.warn('getMedia on accept warning:', e);
+  }
+
+  if (localStream) {
     startAudioRelay(localStream, data.fromId);
     if (data.isVideo) startVideoRelay(data.fromId);
-    
+  }
+
+  try {
     rtcPeer = createPeerConnection(data.fromId);
     await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
     remoteDescSet = true;
@@ -1406,8 +1423,7 @@ btnAcceptCall.onclick = async () => {
     
     socket.emit('webrtc_answer', { toId: data.fromId, fromId: me.id, answer });
   } catch (e) {
-    console.error('[WebRTC] acceptCall err:', e);
-    endCall();
+    console.warn('[WebRTC] acceptCall WebRTC warning, relay will handle audio:', e);
   }
 };
 
