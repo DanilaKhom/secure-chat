@@ -437,7 +437,7 @@ html,body{
           </div>
           <button class="friend-toggle-btn" id="friend-toggle-btn" style="display:none"></button>
           <button class="call-btn" id="call-audio-btn" style="display:none" title="Аудиозвонок">📞</button>
-          <button class="call-btn" id="call-video-btn" style="display:none !important" title="Видеозвонок">📹</button>
+          <button class="call-btn" id="call-video-btn" style="display:none" title="Видеозвонок">📹</button>
         </div>
 
         <div class="msgs" id="msgs">
@@ -1141,21 +1141,21 @@ function showActiveModal(name) {
 }
 
 async function startCall(isVideo) {
-  if (!currentPeer) return;
-  currentCallPeerId = currentPeer.id;
+  if (!peer) return;
+  currentCallPeerId = peer.id;
   currentCallIsVideo = isVideo;
   callState = 'active';
   
   try {
     await getMedia(isVideo);
-    showActiveModal(currentPeer.username);
+    showActiveModal(peer.username);
     playRingtone(); // Play until answered
     
-    rtcPeer = createPeerConnection(currentPeer.id);
+    rtcPeer = createPeerConnection(peer.id);
     const offer = await rtcPeer.createOffer();
     await rtcPeer.setLocalDescription(offer);
     
-    socket.emit('webrtc_offer', { toId: currentPeer.id, fromId: me.id, offer, isVideo });
+    socket.emit('webrtc_offer', { toId: peer.id, fromId: me.id, offer, isVideo });
   } catch (e) {
     endCall();
   }
