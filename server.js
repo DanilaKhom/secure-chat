@@ -75,33 +75,6 @@ async function initDb() {
       auth TEXT NOT NULL,
       UNIQUE(userId, endpoint)
     );
-    CREATE TABLE IF NOT EXISTS groups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      avatar TEXT,
-      creatorId INTEGER NOT NULL,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS group_members (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      groupId INTEGER NOT NULL,
-      userId INTEGER NOT NULL,
-      role TEXT DEFAULT 'member',
-      joinedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(groupId, userId)
-    );
-    CREATE TABLE IF NOT EXISTS group_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      groupId INTEGER NOT NULL,
-      senderId INTEGER NOT NULL,
-      senderName TEXT,
-      text TEXT,
-      fileUrl TEXT,
-      fileType TEXT,
-      fileName TEXT,
-      fileSize INTEGER,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
   `);
   
   try {
@@ -121,11 +94,10 @@ async function initDb() {
   } catch (e) {}
   console.log('DB ready');
 
-  // Clean up direct messages older than 24 hours periodically (every 10 minutes)
+  // Clean up messages older than 24 hours periodically (every 10 minutes)
   setInterval(async () => {
     try {
       await db.execute("DELETE FROM messages WHERE timestamp < DATETIME('now', '-24 hours')");
-      await db.execute("DELETE FROM group_messages WHERE timestamp < DATETIME('now', '-7 days')");
     } catch(e) {
       console.error('Auto cleanup error:', e);
     }
@@ -187,8 +159,6 @@ app.post('/api/register', async (req, res) => {
 
   try {
     const existing = await dbGet('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
-    const encKeyStr = typeof encryptedPrivKey === 'object' ? JSON.stringify(encryptedPrivKey) : String(encryptedPrivKey || '');
-
     if (existing) {
       if (existing.passwordHash && existing.passwordHash !== hash) {
         return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
@@ -197,18 +167,12 @@ app.post('/api/register', async (req, res) => {
       // Update last seen
       await dbRun('UPDATE users SET lastSeen = ? WHERE id = ?', [Date.now(), existing.id]);
       
-      let parsedPrivKey = existing.encryptedPrivKey;
-      try {
-        if (typeof existing.encryptedPrivKey === 'string' && existing.encryptedPrivKey.startsWith('{')) {
-          parsedPrivKey = JSON.parse(existing.encryptedPrivKey);
-        }
-      } catch(e){}
-
+      // Return existing user info so client can decrypt their private key
       return res.json({ 
         id: existing.id, 
         username: existing.username, 
         publicKey: existing.publicKey,
-        encryptedPrivKey: parsedPrivKey,
+        encryptedPrivKey: existing.encryptedPrivKey,
         hideOnlineStatus: existing.hideOnlineStatus || 0
       });
     }
@@ -218,21 +182,9 @@ app.post('/api/register', async (req, res) => {
     }
 
     const now = Date.now();
-    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey, lastSeen, hideOnlineStatus) VALUES (?, ?, ?, ?, ?, 0)', [cleanUser, publicKey, hash, encKeyStr, now]);
+    const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey, lastSeen, hideOnlineStatus) VALUES (?, ?, ?, ?, ?, 0)', [cleanUser, publicKey, hash, encryptedPrivKey, now]);
     res.json({ id: result.lastID, username: cleanUser, publicKey, encryptedPrivKey, hideOnlineStatus: 0 });
   } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/update-keys', async (req, res) => {
-  const { userId, publicKey, encryptedPrivKey } = req.body;
-  if (!userId || !publicKey || !encryptedPrivKey) return res.status(400).json({ error: 'Missing fields' });
-  const encKeyStr = typeof encryptedPrivKey === 'object' ? JSON.stringify(encryptedPrivKey) : String(encryptedPrivKey);
-  try {
-    await dbRun('UPDATE users SET publicKey = ?, encryptedPrivKey = ? WHERE id = ?', [publicKey, encKeyStr, userId]);
-    res.json({ success: true });
-  } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
@@ -473,162 +425,6 @@ app.get('/api/chats/:userId', async (req, res) => {
   res.json(chats);
 });
 
-// ─── Group Chats API ─────────────────────────────────────────────────────────
-
-app.post('/api/groups/create', async (req, res) => {
-  const { name, avatar, creatorId, memberIds } = req.body;
-  if (!name || !creatorId) return res.status(400).json({ error: 'Missing name or creatorId' });
-  try {
-    const creator = await dbGet('SELECT username FROM users WHERE id = ?', [creatorId]);
-    const groupName = name.trim();
-    const g = await dbRun('INSERT INTO groups (name, avatar, creatorId) VALUES (?, ?, ?)', [
-      groupName,
-      avatar || '👥',
-      creatorId
-    ]);
-    const groupId = g.lastID;
-    
-    // Creator is admin
-    await dbRun('INSERT OR IGNORE INTO group_members (groupId, userId, role) VALUES (?, ?, ?)', [groupId, creatorId, 'admin']);
-    
-    const members = Array.isArray(memberIds) ? memberIds : [];
-    for (const mId of members) {
-      if (Number(mId) !== Number(creatorId)) {
-        await dbRun('INSERT OR IGNORE INTO group_members (groupId, userId, role) VALUES (?, ?, ?)', [groupId, Number(mId), 'member']);
-      }
-    }
-
-    // System welcome message
-    await dbRun(`
-      INSERT INTO group_messages (groupId, senderId, senderName, text)
-      VALUES (?, ?, ?, ?)
-    `, [groupId, 0, 'Система', `Группа «${groupName}» создана пользователем ${creator ? creator.username : ''}`]);
-
-    const groupData = {
-      id: groupId,
-      name: groupName,
-      avatar: avatar || '👥',
-      creatorId,
-      memberCount: members.length + 1,
-      lastMessage: `Группа «${groupName}» создана`,
-      lastSenderName: 'Система',
-      lastMessageTime: new Date().toISOString()
-    };
-
-    // Join online members to group socket room and notify them
-    for (const mId of [creatorId, ...members]) {
-      const sids = userSockets.get(String(mId));
-      if (sids) {
-        for (const sid of sids) {
-          const s = io.sockets.sockets.get(sid);
-          if (s) s.join('group_' + groupId);
-          io.to(sid).emit('group_created', groupData);
-        }
-      }
-    }
-
-    res.json({ success: true, group: groupData });
-  } catch(e) {
-    console.error('Group create err:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get('/api/groups/my/:userId', async (req, res) => {
-  const { userId } = req.params;
-  try {
-    const groups = await dbAll(`
-      SELECT g.id, g.name, g.avatar, g.creatorId, g.createdAt,
-             (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.groupId = g.id) as memberCount,
-             (SELECT text FROM group_messages gm3 WHERE gm3.groupId = g.id ORDER BY timestamp DESC LIMIT 1) as lastMessage,
-             (SELECT senderName FROM group_messages gm3 WHERE gm3.groupId = g.id ORDER BY timestamp DESC LIMIT 1) as lastSenderName,
-             (SELECT timestamp FROM group_messages gm3 WHERE gm3.groupId = g.id ORDER BY timestamp DESC LIMIT 1) as lastMessageTime
-      FROM groups g
-      JOIN group_members gm ON g.id = gm.groupId
-      WHERE gm.userId = ?
-      GROUP BY g.id
-      ORDER BY COALESCE(lastMessageTime, g.createdAt) DESC
-    `, [userId]);
-    res.json(groups || []);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get('/api/groups/:groupId/messages', async (req, res) => {
-  const { groupId } = req.params;
-  try {
-    const messages = await dbAll(`
-      SELECT gm.id, gm.groupId, gm.senderId, gm.senderName, gm.text, gm.fileUrl, gm.fileType, gm.fileName, gm.fileSize, gm.timestamp,
-             u.username
-      FROM group_messages gm
-      LEFT JOIN users u ON u.id = gm.senderId
-      WHERE gm.groupId = ?
-      ORDER BY gm.timestamp ASC
-    `, [groupId]);
-    res.json(messages || []);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get('/api/groups/:groupId/members', async (req, res) => {
-  const { groupId } = req.params;
-  try {
-    const members = await dbAll(`
-      SELECT u.id, u.username, u.lastSeen, u.hideOnlineStatus, gm.role
-      FROM group_members gm
-      JOIN users u ON u.id = gm.userId
-      WHERE gm.groupId = ?
-      ORDER BY gm.role DESC, u.username ASC
-    `, [groupId]);
-    res.json(members || []);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/groups/:groupId/add-members', async (req, res) => {
-  const { groupId } = req.params;
-  const { memberIds } = req.body;
-  if (!Array.isArray(memberIds)) return res.status(400).json({ error: 'Missing memberIds array' });
-  try {
-    for (const mId of memberIds) {
-      await dbRun('INSERT OR IGNORE INTO group_members (groupId, userId, role) VALUES (?, ?, ?)', [groupId, Number(mId), 'member']);
-      const sids = userSockets.get(String(mId));
-      if (sids) {
-        for (const sid of sids) {
-          const s = io.sockets.sockets.get(sid);
-          if (s) s.join('group_' + groupId);
-          io.to(sid).emit('group_added', { groupId: Number(groupId) });
-        }
-      }
-    }
-    res.json({ success: true });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/groups/:groupId/leave', async (req, res) => {
-  const { groupId } = req.params;
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'Missing userId' });
-  try {
-    await dbRun('DELETE FROM group_members WHERE groupId = ? AND userId = ?', [groupId, userId]);
-    const sids = userSockets.get(String(userId));
-    if (sids) {
-      for (const sid of sids) {
-        const s = io.sockets.sockets.get(sid);
-        if (s) s.leave('group_' + groupId);
-      }
-    }
-    res.json({ success: true });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ─── Socket.IO ────────────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
@@ -640,14 +436,6 @@ io.on('connection', (socket) => {
     userSockets.get(uid).add(socket.id);
     socket.data.userId = uid;
     
-    // Auto-join all group rooms this user belongs to
-    try {
-      const myGroups = await dbAll('SELECT groupId FROM group_members WHERE userId = ?', [uid]);
-      for (const g of myGroups) {
-        socket.join('group_' + g.groupId);
-      }
-    } catch(e){}
-
     const now = Date.now();
     await dbRun('UPDATE users SET lastSeen = ? WHERE id = ?', [now, uid]);
 
@@ -851,41 +639,6 @@ io.on('connection', (socket) => {
     const rSockets = userSockets.get(String(data.toId));
     if (rSockets) {
       for (const sid of rSockets) io.to(sid).emit('webrtc_hangup', data);
-    }
-  });
-
-  // Group Messaging
-  socket.on('send_group_message', async (data) => {
-    const { groupId, senderId, senderName, text, fileUrl, fileType, fileName, fileSize } = data;
-    if (!groupId || !senderId) return;
-    try {
-      const res = await dbRun(`
-        INSERT INTO group_messages (groupId, senderId, senderName, text, fileUrl, fileType, fileName, fileSize)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `, [groupId, senderId, senderName, text || null, fileUrl || null, fileType || null, fileName || null, fileSize || null]);
-
-      const msgObj = {
-        id: res.lastID,
-        groupId: Number(groupId),
-        senderId: Number(senderId),
-        senderName,
-        text,
-        fileUrl,
-        fileType,
-        fileName,
-        fileSize,
-        timestamp: new Date().toISOString()
-      };
-
-      io.to('group_' + groupId).emit('new_group_message', msgObj);
-    } catch(e) {
-      console.error('send_group_message err:', e);
-    }
-  });
-
-  socket.on('group_typing', (data) => {
-    if (data && data.groupId) {
-      socket.to('group_' + data.groupId).emit('group_user_typing', data);
     }
   });
 
