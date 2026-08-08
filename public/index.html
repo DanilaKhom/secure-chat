@@ -431,6 +431,29 @@ input:checked + .slider:before{transform:translateX(20px)}
   .chat{width:100%}
   .back-btn{display:flex}
 }
+/* Selection Mode */
+.msgs.selection-mode .mrow { cursor: pointer; border-radius: 8px; transition: background 0.2s; padding: 4px; margin: 2px 0; display: flex; align-items: center; }
+.msgs.selection-mode .mrow:hover { background: rgba(128,128,128,0.1); }
+.msgs.selection-mode .mrow.selected { background: rgba(239, 68, 68, 0.15); }
+.msgs.selection-mode .msg-checkbox { display: flex; }
+.msg-checkbox {
+  display: none; width: 20px; height: 20px; min-width: 20px; border: 2px solid var(--muted); border-radius: 50%;
+  margin-right: 10px; align-items: center; justify-content: center; align-self: flex-end; transition: 0.2s; margin-bottom: 4px;
+}
+.mrow.me .msg-checkbox { margin-right: 0; margin-left: 10px; order: 2; }
+.mrow.selected .msg-checkbox { border-color: var(--red); background: var(--red); }
+.mrow.selected .msg-checkbox::after { content: '✓'; color: #fff; font-size: 12px; font-weight: bold; }
+
+.selection-header {
+  display: none; align-items: center; padding: 0 1rem; height: 60px;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+  justify-content: space-between;
+}
+.selection-header.active { display: flex; }
+.selection-close { background: none; border: none; color: var(--fg); font-size: 1.3rem; cursor: pointer; margin-right: 10px; }
+.selection-count { font-weight: 600; font-size: 1.1rem; }
+.selection-delete { background: var(--red); color: white; border: none; padding: 6px 14px; border-radius: 20px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 </style>
 </head>
 <body>
@@ -518,6 +541,17 @@ input:checked + .slider:before{transform:translateX(20px)}
               <svg viewBox="0 0 24 24"><path d="M17 10.5V7c0-.6-.4-1-1-1H4c-.6 0-1 .4-1 1v10c0 .6.4 1 1 1h12c.6 0 1-.4 1-1v-3.5l4 4v-11l-4 4z"/></svg>
             </button>
           </div>
+        </div>
+
+        <div class="selection-header" id="selection-header">
+          <div style="display:flex;align-items:center;">
+            <button class="selection-close" id="selection-close-btn">✕</button>
+            <div class="selection-count" id="selection-count">0</div>
+          </div>
+          <button class="selection-delete" id="selection-delete-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:2px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+            Удалить
+          </button>
         </div>
 
         <div class="msgs" id="msgs">
@@ -1000,10 +1034,88 @@ function parseMsgPayload(raw){
   return { type:'text', data:raw };
 }
 
-function addMsg(rawContent,isMe,ts,isRead=false){
+let isSelectionMode = false;
+let selectedMessageIds = new Set();
+const selectionHeader = document.getElementById('selection-header');
+const selectionCount = document.getElementById('selection-count');
+const selectionCloseBtn = document.getElementById('selection-close-btn');
+const selectionDeleteBtn = document.getElementById('selection-delete-btn');
+
+function toggleSelectionMode(enable) {
+  isSelectionMode = enable;
+  if (enable) {
+    msgsEl.classList.add('selection-mode');
+    selectionHeader.classList.add('active');
+  } else {
+    msgsEl.classList.remove('selection-mode');
+    selectionHeader.classList.remove('active');
+    selectedMessageIds.clear();
+    document.querySelectorAll('.mrow.selected').forEach(el => el.classList.remove('selected'));
+  }
+  updateSelectionCount();
+}
+
+function updateSelectionCount() {
+  selectionCount.textContent = selectedMessageIds.size;
+  selectionDeleteBtn.style.display = selectedMessageIds.size > 0 ? 'flex' : 'none';
+}
+
+selectionCloseBtn.onclick = () => toggleSelectionMode(false);
+selectionDeleteBtn.onclick = () => {
+  if (selectedMessageIds.size === 0) return;
+  if (confirm(`Удалить выбранные сообщения (${selectedMessageIds.size} шт.) у всех безвозвратно?`)) {
+    if (socket && currentPeer) {
+      socket.emit('delete_messages', { messageIds: Array.from(selectedMessageIds), peerId: currentPeer.id });
+    }
+    toggleSelectionMode(false);
+  }
+};
+
+function addMsg(id,rawContent,isMe,ts,isRead=false){
   msgsEmpty.style.display='none';
   const row=document.createElement('div');
   row.className='mrow '+(isMe?'me':'them');
+  row.dataset.id = id;
+  
+  const checkbox = document.createElement('div');
+  checkbox.className = 'msg-checkbox';
+  row.appendChild(checkbox);
+
+  let pressTimer;
+  row.onpointerdown = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pressTimer = setTimeout(() => {
+      if (!isSelectionMode) {
+        toggleSelectionMode(true);
+        toggleRowSelection(row, id);
+      }
+    }, 500);
+  };
+  row.onpointerup = () => clearTimeout(pressTimer);
+  row.onpointercancel = () => clearTimeout(pressTimer);
+  
+  row.onclick = (e) => {
+    clearTimeout(pressTimer);
+    if (isSelectionMode) {
+      // prevent opening images in selection mode
+      e.stopPropagation();
+      e.preventDefault();
+      toggleRowSelection(row, id);
+    }
+  };
+
+  function toggleRowSelection(r, msgId) {
+    if (selectedMessageIds.has(msgId)) {
+      selectedMessageIds.delete(msgId);
+      r.classList.remove('selected');
+      if (selectedMessageIds.size === 0) toggleSelectionMode(false);
+    } else {
+      selectedMessageIds.add(msgId);
+      r.classList.add('selected');
+    }
+    updateSelectionCount();
+  }
+
   const inner=document.createElement('div');
   inner.style.display='flex';
   inner.style.flexDirection='column';
@@ -1018,7 +1130,8 @@ function addMsg(rawContent,isMe,ts,isRead=false){
     const img=document.createElement('img');
     img.className='bubble-img';
     img.src=msgObj.data;
-    img.onclick=()=>{
+    img.onclick=(e)=>{
+      if (isSelectionMode) return;
       imgModalTarget.src=msgObj.data;
       imgModal.style.display='flex';
     };
@@ -2085,6 +2198,19 @@ function connectSocket(){
     }
   });
 
+  socket.on('messages_deleted', (ids) => {
+    ids.forEach(id => {
+      const el = msgsEl.querySelector(`.mrow[data-id="${id}"]`);
+      if (el) el.remove();
+    });
+  });
+
+  socket.on('message_sent_ack', (data) => {
+    const { clientMsgId, id } = data;
+    const el = msgsEl.querySelector(`.mrow[data-id="${clientMsgId}"]`);
+    if (el) el.dataset.id = id;
+  });
+
   socket.on('private_message',async msg=>{
     let decrypted='[Зашифрованное сообщение]';
     try{
@@ -2106,14 +2232,14 @@ function connectSocket(){
     const isCurrentChat=peer && String(peer.id)===sid;
 
     if(isCurrentChat){
-      addMsg(decrypted,false,msg.timestamp,true);
+      addMsg(msg.id, decrypted,false,msg.timestamp,true);
       socket.emit('mark_read', { senderId: msg.senderId, receiverId: me.id });
       if(document.hidden){
         showNotification(peer.username, snippet);
       }
     }else{
       if(!pending[sid])pending[sid]=[];
-      pending[sid].push({text:decrypted,ts:msg.timestamp});
+      pending[sid].push({id: msg.id, text:decrypted, ts:msg.timestamp});
       
       let senderName='Пользователь #'+sid;
       const found=myFriends.find(f=>String(f.id)===sid);
@@ -2477,7 +2603,7 @@ async function openChat(user){
       }catch(e){
         text=isMe?'[Отправлено со старым ключом]':'[Зашифровано старым ключом]';
       }
-      addMsg(text,isMe,msg.timestamp,!!msg.isRead);
+      addMsg(msg.id,text,isMe,msg.timestamp,!!msg.isRead);
     }
     
     // Mark as read in server
@@ -2488,7 +2614,7 @@ async function openChat(user){
 
   // flush pending
   const pend=pending[String(user.id)]||[];
-  for(const m of pend)addMsg(m.text,false,m.ts);
+  for(const m of pend)addMsg(m.id || ('pend-'+Date.now()),m.text,false,m.ts);
   delete pending[String(user.id)];
 
   if(activeTab==='chats') loadRecent();
@@ -2536,14 +2662,16 @@ async function send(){
   catch{toast('❌ Нет своего ключа');return}
 
   try{
+    const tempId = 'temp-' + Date.now() + Math.random().toString(36).substr(2,9);
     const[forPeer,forMe]=await Promise.all([encFor(payloadToSend,peerKey),encFor(payloadToSend,myKey)]);
     socket.emit('private_message',{
       senderId:me.id,
       receiverId:peer.id,
       encryptedContent:JSON.stringify(forPeer),
-      senderCopy:JSON.stringify(forMe)
+      senderCopy:JSON.stringify(forMe),
+      clientMsgId: tempId
     });
-    addMsg(payloadToSend,true,null,false);
+    addMsg(tempId,payloadToSend,true,null,false);
     if(activeTab==='chats') loadRecent();
   }catch(e){
     toast('❌ Ошибка: '+e.message);

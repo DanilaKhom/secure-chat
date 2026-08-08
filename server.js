@@ -472,7 +472,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('private_message', async (data) => {
-    const { senderId, receiverId, encryptedContent, senderCopy } = data;
+    const { senderId, receiverId, encryptedContent, senderCopy, clientMsgId } = data;
     console.log(`MSG from ${senderId} to ${receiverId}`);
 
     // Save to DB
@@ -490,6 +490,14 @@ io.on('connection', (socket) => {
         timestamp: new Date().toISOString(),
         isRead: 0
       };
+
+      // Deliver back to sender with real DB ID
+      if (clientMsgId) {
+        const mySockets = userSockets.get(String(senderId));
+        if (mySockets) {
+          for (const sid of mySockets) io.to(sid).emit('message_sent_ack', { clientMsgId, id: result.lastID });
+        }
+      }
 
       // Deliver to ALL receiver's sockets
       const receiverSockets = userSockets.get(String(receiverId));
@@ -551,6 +559,42 @@ io.on('connection', (socket) => {
       }
     } catch (e) {
       console.error('mark_read error:', e);
+    }
+  });
+
+  socket.on('delete_messages', async (data) => {
+    const { messageIds, peerId } = data;
+    const userId = socket.data.userId;
+    if (!userId || !messageIds || !Array.isArray(messageIds) || messageIds.length === 0) return;
+    
+    try {
+      for (const id of messageIds) {
+        // Secure wipe: overwrite with zeros before deleting
+        await dbRun(`
+          UPDATE messages 
+          SET encryptedContent = '0000000000000000', senderCopy = '0000000000000000' 
+          WHERE id = ? AND (senderId = ? OR receiverId = ?)
+        `, [id, userId, userId]);
+        
+        await dbRun(`
+          DELETE FROM messages 
+          WHERE id = ? AND (senderId = ? OR receiverId = ?)
+        `, [id, userId, userId]);
+      }
+      
+      const mySockets = userSockets.get(String(userId));
+      if (mySockets) {
+        for (const sid of mySockets) io.to(sid).emit('messages_deleted', messageIds);
+      }
+      
+      if (peerId) {
+        const pSockets = userSockets.get(String(peerId));
+        if (pSockets) {
+          for (const sid of pSockets) io.to(sid).emit('messages_deleted', messageIds);
+        }
+      }
+    } catch (e) {
+      console.error('delete_messages error:', e);
     }
   });
 
