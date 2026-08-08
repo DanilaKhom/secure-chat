@@ -603,6 +603,22 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Native Opus compressed stream (WebCodecs)
+  socket.on('call_audio_opus', (data) => {
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('call_audio_opus', data);
+    }
+  });
+
+  // IMA ADPCM compressed stream (Universal fallback)
+  socket.on('call_audio_adpcm', (data) => {
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('call_audio_adpcm', data);
+    }
+  });
+
   // MediaRecorder blob relay (for iOS Safari)
   socket.on('call_audio_blob', (data) => {
     const rSockets = userSockets.get(String(data.toId));
