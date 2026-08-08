@@ -603,6 +603,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  // MediaRecorder blob relay (for iOS Safari)
+  socket.on('call_audio_blob', (data) => {
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('call_audio_blob', data);
+    }
+  });
+
   socket.on('call_video_frame', (data) => {
     const rSockets = userSockets.get(String(data.toId));
     if (rSockets) {

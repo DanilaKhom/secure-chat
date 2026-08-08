@@ -1308,11 +1308,68 @@ async function getMedia(isVideo) {
   }
 }
 
+// ─── Audio Relay (MediaRecorder for iOS/Safari/Android/Chrome universal) ─────
+let mediaRecorderRelay = null;
+let audioRelayCtxSend = null; // separate context for sending (not shared with playback)
+
 function startAudioRelay(stream, targetId) {
-  try {
-    if (audioRelayCtx) {
-      try { audioRelayCtx.close(); } catch(e){}
+  // Prefer MediaRecorder — works on iOS Safari 14.5+, Android, Chrome, Mac
+  const useMediaRecorder = typeof MediaRecorder !== 'undefined' && (
+    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ||
+    MediaRecorder.isTypeSupported('audio/mp4') ||
+    MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ||
+    MediaRecorder.isTypeSupported('')
+  );
+
+  if (useMediaRecorder) {
+    try {
+      let mimeType = '';
+      const types = [
+        'audio/webm;codecs=opus',
+        'audio/ogg;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        ''
+      ];
+      for (const t of types) {
+        if (t === '' || MediaRecorder.isTypeSupported(t)) {
+          mimeType = t;
+          break;
+        }
+      }
+
+      const options = mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 };
+      const audioStream = new MediaStream(stream.getAudioTracks());
+      mediaRecorderRelay = new MediaRecorder(audioStream, options);
+
+      mediaRecorderRelay.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0 && callState === 'active' && socket && targetId) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (callState === 'active' && socket && targetId) {
+              socket.emit('call_audio_blob', {
+                toId: targetId,
+                fromId: me.id,
+                blob: reader.result,
+                mimeType: mimeType || 'audio/webm'
+              });
+            }
+          };
+          reader.readAsDataURL(e.data);
+        }
+      };
+
+      mediaRecorderRelay.start(150); // 150ms chunks — low latency
+      console.log('[AudioRelay] MediaRecorder started, mimeType:', mimeType);
+      return;
+    } catch(e) {
+      console.warn('[AudioRelay] MediaRecorder failed, falling back to ScriptProcessor:', e);
     }
+  }
+
+  // Fallback: ScriptProcessorNode for older browsers
+  try {
+    if (audioRelayCtx) { try { audioRelayCtx.close(); } catch(ex){} }
     audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
     audioRelayCtx.resume();
 
@@ -1324,12 +1381,11 @@ function startAudioRelay(stream, targetId) {
       if (callState !== 'active') return;
       const input = e.inputBuffer.getChannelData(0);
       const output = e.outputBuffer.getChannelData(0);
-      output.fill(0); // Zero out speaker output to prevent acoustic feedback loop
-      
       const pcm16 = new Int16Array(input.length);
       for (let i = 0; i < input.length; i++) {
-        let s = Math.max(-1, Math.min(1, input[i]));
+        const s = Math.max(-1, Math.min(1, input[i]));
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        output[i] = s * 0.00001; // micro-signal keeps iOS from suspending
       }
       if (socket && targetId && callState === 'active') {
         socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer, rate: currentRate });
@@ -1338,8 +1394,9 @@ function startAudioRelay(stream, targetId) {
 
     audioSourceNode.connect(audioScriptNode);
     audioScriptNode.connect(audioRelayCtx.destination);
+    console.log('[AudioRelay] ScriptProcessor started');
   } catch (err) {
-    console.warn('startAudioRelay non-fatal err:', err);
+    console.warn('[AudioRelay] All relay methods failed:', err);
   }
 }
 
@@ -1419,6 +1476,10 @@ function startVideoRelay(targetId) {
 }
 
 function stopRelays() {
+  if (mediaRecorderRelay) {
+    try { mediaRecorderRelay.stop(); } catch(e){}
+    mediaRecorderRelay = null;
+  }
   if (audioScriptNode) {
     try { audioScriptNode.disconnect(); } catch(e){}
     audioScriptNode = null;
@@ -1751,7 +1812,7 @@ function setupWebRTCSocket(sock) {
     }
   });
 
-  // Guaranteed Audio Stream
+  // Guaranteed Audio Stream (ScriptProcessor / PCM)
   sock.on('call_audio', (data) => {
     if (callState === 'active' && data.pcm) {
       if (activeStatus.textContent === 'Соединение...') {
@@ -1760,6 +1821,24 @@ function setupWebRTCSocket(sock) {
         startCallTimer();
       }
       playIncomingPCM(data.pcm, data.rate);
+    }
+  });
+
+  // Guaranteed Audio Stream (MediaRecorder / iOS Safari)
+  sock.on('call_audio_blob', (data) => {
+    if (callState !== 'active' || !data.blob) return;
+    if (activeStatus.textContent === 'Соединение...') {
+      stopRingtone();
+      activeStatus.textContent = '00:00';
+      startCallTimer();
+    }
+    try {
+      const audio = new Audio(data.blob);
+      audio.volume = 1.0;
+      audio.muted = false;
+      audio.play().catch(e => console.warn('[BlobAudio] play err:', e));
+    } catch(e) {
+      console.warn('[BlobAudio] error:', e);
     }
   });
 
