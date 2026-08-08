@@ -1308,75 +1308,66 @@ async function getMedia(isVideo) {
   }
 }
 
-// ─── Audio Relay (MediaRecorder for iOS/Safari/Android/Chrome universal) ─────
+// Detect iOS Safari (uses MediaRecorder path)
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// ─── Audio Relay ──────────────────────────────────────────────────────────────
 let mediaRecorderRelay = null;
-let audioRelayCtxSend = null; // separate context for sending (not shared with playback)
 
 function startAudioRelay(stream, targetId) {
-  // Prefer MediaRecorder — works on iOS Safari 14.5+, Android, Chrome, Mac
-  const useMediaRecorder = typeof MediaRecorder !== 'undefined' && (
-    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ||
-    MediaRecorder.isTypeSupported('audio/mp4') ||
-    MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ||
-    MediaRecorder.isTypeSupported('')
-  );
+  if (isIOS) {
+    // iOS Safari: ScriptProcessorNode does NOT work. Use MediaRecorder.
+    _startAudioRelayMediaRecorder(stream, targetId);
+  } else {
+    // Mac Chrome/Safari, Android Chrome: use ScriptProcessorNode (reliable, low-latency PCM)
+    _startAudioRelayScriptProcessor(stream, targetId);
+  }
+}
 
-  if (useMediaRecorder) {
-    try {
-      let mimeType = '';
-      const types = [
-        'audio/webm;codecs=opus',
-        'audio/ogg;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-        ''
-      ];
-      for (const t of types) {
-        if (t === '' || MediaRecorder.isTypeSupported(t)) {
-          mimeType = t;
-          break;
-        }
-      }
+function _startAudioRelayMediaRecorder(stream, targetId) {
+  try {
+    // iOS Safari supports audio/mp4 in MediaRecorder
+    let mimeType = '';
+    const preferred = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+    for (const t of preferred) {
+      if (MediaRecorder.isTypeSupported(t)) { mimeType = t; break; }
+    }
 
-      const options = mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 };
-      const audioStream = new MediaStream(stream.getAudioTracks());
-      mediaRecorderRelay = new MediaRecorder(audioStream, options);
+    const audioStream = new MediaStream(stream.getAudioTracks());
+    const opts = mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 };
+    mediaRecorderRelay = new MediaRecorder(audioStream, opts);
 
-      mediaRecorderRelay.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0 && callState === 'active' && socket && targetId) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (callState === 'active' && socket && targetId) {
-              socket.emit('call_audio_blob', {
-                toId: targetId,
-                fromId: me.id,
-                blob: reader.result,
-                mimeType: mimeType || 'audio/webm'
-              });
-            }
-          };
-          reader.readAsDataURL(e.data);
+    mediaRecorderRelay.ondataavailable = (e) => {
+      if (!e.data || e.data.size === 0 || callState !== 'active' || !socket) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (callState === 'active' && socket) {
+          socket.emit('call_audio_blob', { toId: targetId, fromId: me.id, blob: reader.result, mimeType });
         }
       };
+      reader.readAsDataURL(e.data);
+    };
 
-      mediaRecorderRelay.start(150); // 150ms chunks — low latency
-      console.log('[AudioRelay] MediaRecorder started, mimeType:', mimeType);
-      return;
-    } catch(e) {
-      console.warn('[AudioRelay] MediaRecorder failed, falling back to ScriptProcessor:', e);
-    }
+    mediaRecorderRelay.start(200); // 200ms chunks
+    console.log('[AudioRelay] iOS MediaRecorder started, mimeType:', mimeType || '(default)');
+  } catch(e) {
+    console.warn('[AudioRelay] MediaRecorder failed on iOS, trying ScriptProcessor:', e);
+    _startAudioRelayScriptProcessor(stream, targetId);
   }
+}
 
-  // Fallback: ScriptProcessorNode for older browsers
+function _startAudioRelayScriptProcessor(stream, targetId) {
   try {
-    if (audioRelayCtx) { try { audioRelayCtx.close(); } catch(ex){} }
-    audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
+      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
     audioRelayCtx.resume();
 
-    const currentRate = audioRelayCtx.sampleRate || 44100;
+    const rate = audioRelayCtx.sampleRate || 44100;
     audioSourceNode = audioRelayCtx.createMediaStreamSource(stream);
     audioScriptNode = audioRelayCtx.createScriptProcessor(4096, 1, 1);
-    
+
     audioScriptNode.onaudioprocess = (e) => {
       if (callState !== 'active') return;
       const input = e.inputBuffer.getChannelData(0);
@@ -1385,18 +1376,18 @@ function startAudioRelay(stream, targetId) {
       for (let i = 0; i < input.length; i++) {
         const s = Math.max(-1, Math.min(1, input[i]));
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        output[i] = s * 0.00001; // micro-signal keeps iOS from suspending
+        output[i] = 0; // silence to speakers
       }
-      if (socket && targetId && callState === 'active') {
-        socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer, rate: currentRate });
+      if (socket && callState === 'active') {
+        socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer, rate });
       }
     };
 
     audioSourceNode.connect(audioScriptNode);
     audioScriptNode.connect(audioRelayCtx.destination);
-    console.log('[AudioRelay] ScriptProcessor started');
-  } catch (err) {
-    console.warn('[AudioRelay] All relay methods failed:', err);
+    console.log('[AudioRelay] ScriptProcessor started, rate:', rate);
+  } catch(err) {
+    console.warn('[AudioRelay] ScriptProcessor failed:', err);
   }
 }
 
@@ -1406,20 +1397,17 @@ function playIncomingPCM(rawBuffer, rate) {
     if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
       audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
-    if (audioRelayCtx.state === 'suspended') {
-      audioRelayCtx.resume();
-    }
-    
-    // Robust binary unpacking across Chrome, Safari, macOS, Android Socket.io formats
+    if (audioRelayCtx.state === 'suspended') audioRelayCtx.resume();
+
     let pcm16 = null;
     if (rawBuffer instanceof Int16Array) {
       pcm16 = rawBuffer;
     } else if (rawBuffer instanceof ArrayBuffer) {
       pcm16 = new Int16Array(rawBuffer);
     } else if (rawBuffer && rawBuffer.buffer instanceof ArrayBuffer) {
-      const offset = rawBuffer.byteOffset || 0;
-      const bytes = rawBuffer.byteLength !== undefined ? rawBuffer.byteLength : (rawBuffer.length ? rawBuffer.length * 2 : 0);
-      pcm16 = new Int16Array(rawBuffer.buffer, offset, Math.floor(bytes / 2));
+      const off = rawBuffer.byteOffset || 0;
+      const bytes = rawBuffer.byteLength !== undefined ? rawBuffer.byteLength : rawBuffer.length * 2;
+      pcm16 = new Int16Array(rawBuffer.buffer, off, Math.floor(bytes / 2));
     } else if (rawBuffer && rawBuffer.data && Array.isArray(rawBuffer.data)) {
       const u8 = new Uint8Array(rawBuffer.data);
       pcm16 = new Int16Array(u8.buffer, 0, Math.floor(u8.length / 2));
@@ -1428,26 +1416,24 @@ function playIncomingPCM(rawBuffer, rate) {
     } else {
       pcm16 = new Int16Array(rawBuffer);
     }
-    
+
     if (!pcm16 || pcm16.length === 0) return;
-    
-    const sampleRate = rate || 44100;
+
+    const sampleRate = rate || audioRelayCtx.sampleRate || 44100;
     const audioBuffer = audioRelayCtx.createBuffer(1, pcm16.length, sampleRate);
-    const channelData = audioBuffer.getChannelData(0);
+    const ch = audioBuffer.getChannelData(0);
     for (let i = 0; i < pcm16.length; i++) {
-      channelData[i] = pcm16[i] < 0 ? pcm16[i] / 0x8000 : pcm16[i] / 0x7FFF;
+      ch[i] = pcm16[i] < 0 ? pcm16[i] / 0x8000 : pcm16[i] / 0x7FFF;
     }
-    const source = audioRelayCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioRelayCtx.destination);
-    
+    const src = audioRelayCtx.createBufferSource();
+    src.buffer = audioBuffer;
+    src.connect(audioRelayCtx.destination);
+
     const now = audioRelayCtx.currentTime;
-    if (nextPlayTime < now || nextPlayTime > now + 0.15) {
-      nextPlayTime = now + 0.02;
-    }
-    source.start(nextPlayTime);
+    if (nextPlayTime < now || nextPlayTime > now + 0.3) nextPlayTime = now + 0.02;
+    src.start(nextPlayTime);
     nextPlayTime += audioBuffer.duration;
-  } catch(e){
+  } catch(e) {
     console.warn('playIncomingPCM err:', e);
   }
 }
@@ -1832,11 +1818,27 @@ function setupWebRTCSocket(sock) {
       activeStatus.textContent = '00:00';
       startCallTimer();
     }
+    // Use decodeAudioData for proper gapless playback of MediaRecorder chunks
     try {
-      const audio = new Audio(data.blob);
-      audio.volume = 1.0;
-      audio.muted = false;
-      audio.play().catch(e => console.warn('[BlobAudio] play err:', e));
+      if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
+        audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioRelayCtx.state === 'suspended') audioRelayCtx.resume();
+
+      fetch(data.blob)
+        .then(r => r.arrayBuffer())
+        .then(ab => audioRelayCtx.decodeAudioData(ab))
+        .then(audioBuffer => {
+          if (callState !== 'active') return;
+          const src = audioRelayCtx.createBufferSource();
+          src.buffer = audioBuffer;
+          src.connect(audioRelayCtx.destination);
+          const now = audioRelayCtx.currentTime;
+          if (nextPlayTime < now || nextPlayTime > now + 0.6) nextPlayTime = now + 0.02;
+          src.start(nextPlayTime);
+          nextPlayTime += audioBuffer.duration;
+        })
+        .catch(e => console.warn('[BlobAudio] decode err:', e));
     } catch(e) {
       console.warn('[BlobAudio] error:', e);
     }
