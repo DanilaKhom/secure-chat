@@ -488,6 +488,29 @@ io.on('connection', (socket) => {
     }
   });
 
+  // --- Real-time Guaranteed Audio/Video Relay (Zero-NAT Fallback) ---
+  socket.on('call_audio', (data) => {
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('call_audio', data);
+    }
+  });
+
+  socket.on('call_video_frame', (data) => {
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('call_video_frame', data);
+    }
+  });
+
+  socket.on('webrtc_hangup', (data) => {
+    // data: { toId, fromId }
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('webrtc_hangup', data);
+    }
+  });
+
   socket.on('disconnect', () => {
     const uid = socket.data.userId;
     if (uid && userSockets.has(uid)) {

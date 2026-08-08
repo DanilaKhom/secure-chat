@@ -1012,7 +1012,7 @@ window.addEventListener('DOMContentLoaded',async ()=>{
 });
 
 // ═══════════════════════════════════════
-// WEBRTC CALLS
+// GUARANTEED ZERO-NAT AUDIO/VIDEO RELAY & WEBRTC
 // ═══════════════════════════════════════
 const callAudioBtn=document.getElementById('call-audio-btn');
 const callVideoBtn=document.getElementById('call-video-btn');
@@ -1037,6 +1037,13 @@ let currentCallIsVideo = false;
 let incomingCallData = null;
 let iceCandidateQueue = [];
 let remoteDescSet = false;
+
+// Audio Streaming Relay Engine
+let audioRelayCtx = null;
+let audioScriptNode = null;
+let audioSourceNode = null;
+let nextPlayTime = 0;
+let videoRelayInterval = null;
 
 // Ringtone oscillator
 let ringtoneInterval = null;
@@ -1095,13 +1102,109 @@ async function getMedia(isVideo) {
   }
 }
 
+function startAudioRelay(stream, targetId) {
+  try {
+    if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
+      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    }
+    if (audioRelayCtx.state === 'suspended') {
+      audioRelayCtx.resume();
+    }
+    audioSourceNode = audioRelayCtx.createMediaStreamSource(stream);
+    audioScriptNode = audioRelayCtx.createScriptProcessor(2048, 1, 1);
+    audioScriptNode.onaudioprocess = (e) => {
+      if (callState !== 'active') return;
+      const input = e.inputBuffer.getChannelData(0);
+      const pcm16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        let s = Math.max(-1, Math.min(1, input[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      if (socket && targetId && callState === 'active') {
+        socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer });
+      }
+    };
+    audioSourceNode.connect(audioScriptNode);
+    audioScriptNode.connect(audioRelayCtx.destination);
+  } catch (err) {
+    console.error('startAudioRelay err:', err);
+  }
+}
+
+function playIncomingPCM(arrayBuffer) {
+  if (callState !== 'active') return;
+  try {
+    if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
+      audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    }
+    if (audioRelayCtx.state === 'suspended') {
+      audioRelayCtx.resume();
+    }
+    const pcm16 = new Int16Array(arrayBuffer);
+    const audioBuffer = audioRelayCtx.createBuffer(1, pcm16.length, 16000);
+    const channelData = audioBuffer.getChannelData(0);
+    for (let i = 0; i < pcm16.length; i++) {
+      channelData[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7FFF);
+    }
+    const source = audioRelayCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioRelayCtx.destination);
+    
+    const now = audioRelayCtx.currentTime;
+    if (nextPlayTime < now) {
+      nextPlayTime = now + 0.04;
+    }
+    source.start(nextPlayTime);
+    nextPlayTime += audioBuffer.duration;
+  } catch(e){
+    console.error('playIncomingPCM err:', e);
+  }
+}
+
+function startVideoRelay(targetId) {
+  if (!currentCallIsVideo || !localStream) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 240;
+  const ctx = canvas.getContext('2d');
+  
+  videoRelayInterval = setInterval(() => {
+    if (callState !== 'active' || !localVideo || !socket || !targetId) return;
+    try {
+      ctx.drawImage(localVideo, 0, 0, 320, 240);
+      const frameData = canvas.toDataURL('image/jpeg', 0.4);
+      socket.emit('call_video_frame', { toId: targetId, fromId: me.id, frame: frameData });
+    } catch(e){}
+  }, 180);
+}
+
+function stopRelays() {
+  if (audioScriptNode) {
+    try { audioScriptNode.disconnect(); } catch(e){}
+    audioScriptNode = null;
+  }
+  if (audioSourceNode) {
+    try { audioSourceNode.disconnect(); } catch(e){}
+    audioSourceNode = null;
+  }
+  if (videoRelayInterval) {
+    clearInterval(videoRelayInterval);
+    videoRelayInterval = null;
+  }
+  nextPlayTime = 0;
+}
+
 function stopMedia() {
+  stopRelays();
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
   }
   if (localVideo) localVideo.srcObject = null;
-  if (remoteVideo) remoteVideo.srcObject = null;
+  if (remoteVideo) {
+    remoteVideo.srcObject = null;
+    remoteVideo.poster = '';
+  }
   if (remoteAudio) remoteAudio.srcObject = null;
 }
 
@@ -1166,8 +1269,6 @@ function createPeerConnection(peerId) {
     console.log('[WebRTC] iceConnectionState:', pc.iceConnectionState);
     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
       handleConnected();
-    } else if (pc.iceConnectionState === 'failed') {
-      endCall(true);
     }
   };
   
@@ -1175,8 +1276,6 @@ function createPeerConnection(peerId) {
     console.log('[WebRTC] connectionState:', pc.connectionState);
     if (pc.connectionState === 'connected') {
       handleConnected();
-    } else if (pc.connectionState === 'failed') {
-      endCall(true);
     }
   };
   
@@ -1213,12 +1312,15 @@ async function startCall(isVideo) {
   remoteDescSet = false;
   
   try {
-    // Prime audio for iOS Safari playback
     remoteAudio.play().catch(()=>{});
     
     await getMedia(isVideo);
     showActiveModal(peer.username);
     playRingtone();
+    
+    // Start low-latency guaranteed relay
+    startAudioRelay(localStream, peer.id);
+    if (isVideo) startVideoRelay(peer.id);
     
     rtcPeer = createPeerConnection(peer.id);
     const offer = await rtcPeer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
@@ -1254,7 +1356,6 @@ function endCall(remoteHangup = false) {
   incomingModal.classList.remove('active');
   activeModal.classList.remove('active');
   
-  // Reset buttons
   btnToggleMic.classList.remove('muted');
   btnToggleMic.textContent = '🎤';
   btnToggleVid.classList.remove('muted');
@@ -1282,11 +1383,18 @@ btnAcceptCall.onclick = async () => {
   callState = 'active';
   
   try {
-    // Prime audio for iOS Safari playback on user click gesture
     remoteAudio.play().catch(()=>{});
     
     await getMedia(data.isVideo);
     showActiveModal(data.senderName);
+    
+    // Connected immediately on accept
+    activeStatus.textContent = '00:00';
+    startCallTimer();
+    
+    // Start low-latency guaranteed relay
+    startAudioRelay(localStream, data.fromId);
+    if (data.isVideo) startVideoRelay(data.fromId);
     
     rtcPeer = createPeerConnection(data.fromId);
     await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -1348,6 +1456,8 @@ function setupWebRTCSocket(sock) {
     if (callState === 'active' && rtcPeer && currentCallPeerId === data.fromId) {
       try {
         stopRingtone();
+        activeStatus.textContent = '00:00';
+        startCallTimer();
         await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.answer));
         remoteDescSet = true;
         await drainIceQueue(rtcPeer);
@@ -1368,6 +1478,28 @@ function setupWebRTCSocket(sock) {
         await rtcPeer.addIceCandidate(new RTCIceCandidate(data.candidate));
       } catch (e) {
         console.warn('[WebRTC] addIceCandidate err:', e);
+      }
+    }
+  });
+
+  // Guaranteed Audio Stream
+  sock.on('call_audio', (data) => {
+    if (callState === 'active' && data.pcm) {
+      if (activeStatus.textContent === 'Соединение...') {
+        stopRingtone();
+        activeStatus.textContent = '00:00';
+        startCallTimer();
+      }
+      playIncomingPCM(data.pcm);
+    }
+  });
+
+  // Guaranteed Video Frame Stream
+  sock.on('call_video_frame', (data) => {
+    if (callState === 'active' && data.frame) {
+      if (videoContainer) videoContainer.classList.add('active');
+      if (!remoteVideo.srcObject) {
+        remoteVideo.poster = data.frame;
       }
     }
   });
