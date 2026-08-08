@@ -1244,6 +1244,19 @@ let remoteDescSet = false;
 
 // Audio Streaming Relay Engine
 let audioRelayCtx = null;
+
+// Global User-Activation unlock for Android Chrome & iOS Safari
+function unlockAudioContext() {
+  if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
+    audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioRelayCtx.state === 'suspended') {
+    audioRelayCtx.resume();
+  }
+}
+window.addEventListener('touchstart', unlockAudioContext, { passive: true });
+window.addEventListener('click', unlockAudioContext, { passive: true });
+window.addEventListener('pointerdown', unlockAudioContext, { passive: true });
 let audioScriptNode = null;
 let audioSourceNode = null;
 let nextPlayTime = 0;
@@ -1280,13 +1293,13 @@ function stopRingtone() {
 
 async function getMedia(isVideo) {
   try {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // Disable hardware AEC/AGC lock on all mobile platforms (iOS + Android) to prevent OS mic muting
     const constraints = {
-      audio: isIOS ? {
+      audio: {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false
-      } : { echoCancellation: true },
+      },
       video: isVideo ? { facingMode: 'user' } : false
     };
     let stream;
