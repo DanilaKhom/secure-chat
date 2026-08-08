@@ -1258,7 +1258,7 @@ function setupWebRTCSocket(sock) {
       return;
     }
     let senderName = 'Неизвестный';
-    const friend = friendsCache.find(f => f.id === data.fromId);
+    const friend = myFriends.find(f => f.id === data.fromId);
     if (friend) senderName = friend.username;
     
     incomingCallData = { ...data, senderName };
