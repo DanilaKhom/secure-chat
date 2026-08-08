@@ -1318,12 +1318,12 @@ function startAudioRelay(stream, targetId) {
       }
     };
 
-    // Zero-gain to keep processing active without speaker feedback on mobile
-    const zeroGain = audioRelayCtx.createGain();
-    zeroGain.gain.value = 0;
+    // Non-zero gain keeps Web Audio rendering thread continuously active on Chrome and Safari
+    const muteGain = audioRelayCtx.createGain();
+    muteGain.gain.setValueAtTime(0.00001, audioRelayCtx.currentTime);
     audioSourceNode.connect(audioScriptNode);
-    audioScriptNode.connect(zeroGain);
-    zeroGain.connect(audioRelayCtx.destination);
+    audioScriptNode.connect(muteGain);
+    muteGain.connect(audioRelayCtx.destination);
   } catch (err) {
     console.warn('startAudioRelay non-fatal err:', err);
   }
@@ -1361,7 +1361,7 @@ function playIncomingPCM(rawBuffer, rate) {
     
     const now = audioRelayCtx.currentTime;
     if (nextPlayTime < now) {
-      nextPlayTime = now + 0.02;
+      nextPlayTime = now + 0.03;
     }
     source.start(nextPlayTime);
     nextPlayTime += audioBuffer.duration;
@@ -1468,6 +1468,8 @@ function createPeerConnection(peerId) {
       remoteVideo.play().catch(e => console.log('remoteVideo play err:', e));
     } else {
       remoteAudio.srcObject = stream;
+      remoteAudio.muted = false;
+      remoteAudio.volume = 1.0;
       remoteAudio.play().catch(e => console.log('remoteAudio play err:', e));
     }
   };
