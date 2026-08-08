@@ -1349,7 +1349,7 @@ function startAudioRelay(stream, targetId) {
 }
 
 function playIncomingPCM(rawBuffer, rate) {
-  if (callState !== 'active') return;
+  if (callState !== 'active' || !rawBuffer) return;
   try {
     if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
       audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1358,29 +1358,40 @@ function playIncomingPCM(rawBuffer, rate) {
       audioRelayCtx.resume();
     }
     
-    // Robust binary unpacking across Chrome, Safari, Android Socket.io formats
-    let pcm16;
-    if (rawBuffer instanceof ArrayBuffer) {
+    // Robust binary unpacking across Chrome, Safari, macOS, Android Socket.io formats
+    let pcm16 = null;
+    if (rawBuffer instanceof Int16Array) {
+      pcm16 = rawBuffer;
+    } else if (rawBuffer instanceof ArrayBuffer) {
       pcm16 = new Int16Array(rawBuffer);
     } else if (rawBuffer && rawBuffer.buffer instanceof ArrayBuffer) {
-      pcm16 = new Int16Array(rawBuffer.buffer, rawBuffer.byteOffset || 0, (rawBuffer.byteLength || rawBuffer.length * 2) / 2);
+      const offset = rawBuffer.byteOffset || 0;
+      const bytes = rawBuffer.byteLength !== undefined ? rawBuffer.byteLength : (rawBuffer.length ? rawBuffer.length * 2 : 0);
+      pcm16 = new Int16Array(rawBuffer.buffer, offset, Math.floor(bytes / 2));
+    } else if (rawBuffer && rawBuffer.data && Array.isArray(rawBuffer.data)) {
+      const u8 = new Uint8Array(rawBuffer.data);
+      pcm16 = new Int16Array(u8.buffer, 0, Math.floor(u8.length / 2));
+    } else if (Array.isArray(rawBuffer)) {
+      pcm16 = new Int16Array(rawBuffer);
     } else {
       pcm16 = new Int16Array(rawBuffer);
     }
     
-    const sampleRate = rate || audioRelayCtx.sampleRate || 44100;
+    if (!pcm16 || pcm16.length === 0) return;
+    
+    const sampleRate = rate || 44100;
     const audioBuffer = audioRelayCtx.createBuffer(1, pcm16.length, sampleRate);
     const channelData = audioBuffer.getChannelData(0);
     for (let i = 0; i < pcm16.length; i++) {
-      channelData[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7FFF);
+      channelData[i] = pcm16[i] < 0 ? pcm16[i] / 0x8000 : pcm16[i] / 0x7FFF;
     }
     const source = audioRelayCtx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioRelayCtx.destination);
     
     const now = audioRelayCtx.currentTime;
-    if (nextPlayTime < now) {
-      nextPlayTime = now + 0.03;
+    if (nextPlayTime < now || nextPlayTime > now + 0.15) {
+      nextPlayTime = now + 0.02;
     }
     source.start(nextPlayTime);
     nextPlayTime += audioBuffer.duration;
@@ -1753,7 +1764,7 @@ function setupWebRTCSocket(sock) {
         activeStatus.textContent = '00:00';
         startCallTimer();
       }
-      playIncomingPCM(data.pcm);
+      playIncomingPCM(data.pcm, data.rate);
     }
   });
 
