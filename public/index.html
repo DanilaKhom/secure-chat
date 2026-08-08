@@ -493,8 +493,8 @@ html,body{
 
 <div class="call-overlay" id="active-call-modal">
   <div class="video-container" id="video-container">
-    <video id="remote-video" autoplay playsinline></video>
-    <video id="local-video" autoplay playsinline muted></video>
+    <video id="remote-video" autoplay playsinline webkit-playsinline></video>
+    <video id="local-video" autoplay playsinline webkit-playsinline muted></video>
   </div>
   <div class="call-avatar" id="active-avatar">?</div>
   <div class="call-name" id="active-name">Имя</div>
@@ -505,7 +505,7 @@ html,body{
     <button class="call-action-btn btn-reject" id="btn-hangup">✖</button>
   </div>
 </div>
-<audio id="remote-audio" autoplay></audio>
+<audio id="remote-audio" autoplay playsinline webkit-playsinline></audio>
 
 <script>
 // ═══════════════════════════════════════
@@ -1035,6 +1035,8 @@ let callState = 'idle'; // idle, ringing, active
 let currentCallPeerId = null;
 let currentCallIsVideo = false;
 let incomingCallData = null;
+let iceCandidateQueue = [];
+let remoteDescSet = false;
 
 // Ringtone oscillator
 let ringtoneInterval = null;
@@ -1067,7 +1069,15 @@ function stopRingtone() {
 
 async function getMedia(isVideo) {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+    const constraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: isVideo ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } : false
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     localStream = stream;
     if (isVideo) {
       localVideo.srcObject = stream;
@@ -1079,6 +1089,7 @@ async function getMedia(isVideo) {
     }
     return stream;
   } catch (e) {
+    console.error('getUserMedia err:', e);
     toast('Ошибка доступа к микрофону/камере');
     throw e;
   }
@@ -1089,18 +1100,18 @@ function stopMedia() {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
   }
-  localVideo.srcObject = null;
-  remoteVideo.srcObject = null;
-  remoteAudio.srcObject = null;
+  if (localVideo) localVideo.srcObject = null;
+  if (remoteVideo) remoteVideo.srcObject = null;
+  if (remoteAudio) remoteAudio.srcObject = null;
 }
-
-// ICE candidate queue (needed when candidates arrive before setRemoteDescription)
-let iceCandidateQueue = [];
-let remoteDescSet = false;
 
 async function drainIceQueue(pc) {
   for (const c of iceCandidateQueue) {
-    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(c));
+    } catch(e) {
+      console.warn('[WebRTC] drainIceCandidate error:', e);
+    }
   }
   iceCandidateQueue = [];
 }
@@ -1111,27 +1122,10 @@ function createPeerConnection(peerId) {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-      {
-        urls: ['turn:fr-turn1.xirsys.com:80?transport=udp', 'turn:fr-turn1.xirsys.com:3478?transport=udp', 'turn:fr-turn1.xirsys.com:80?transport=tcp', 'turn:fr-turn1.xirsys.com:3478?transport=tcp', 'turns:fr-turn1.xirsys.com:443?transport=tcp'],
-        username: 'uOKXrO2jZ_3lJBPHmHr-XqNFv8_kMdOVTCfFjMnbmfk-_1PrBXKr3bq0lIv4j9x3AAAAAGihp1Zzd5FxX2M=',
-        credential: 'b2IzYjVkNjEtNzQ1Ny0xMWYwLWI0YTItMjNhNGE1ZWZlYTli'
-      },
-      {
-        urls: 'turn:relay.metered.ca:80',
-        username: 'e4f9f2a68c7e78a79c3a44f1',
-        credential: 'aN1lNBjc+mYCt8w6'
-      },
-      {
-        urls: 'turn:relay.metered.ca:443',
-        username: 'e4f9f2a68c7e78a79c3a44f1',
-        credential: 'aN1lNBjc+mYCt8w6'
-      },
-      {
-        urls: 'turns:relay.metered.ca:443?transport=tcp',
-        username: 'e4f9f2a68c7e78a79c3a44f1',
-        credential: 'aN1lNBjc+mYCt8w6'
-      }
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' }
     ],
     iceCandidatePoolSize: 10
   });
@@ -1143,36 +1137,45 @@ function createPeerConnection(peerId) {
   };
   
   pc.ontrack = (event) => {
-    // Always use first stream, attach to remote audio for audio calls
-    const stream = event.streams[0];
+    console.log('[WebRTC] ontrack kind:', event.track.kind);
+    const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
     if (event.track.kind === 'video') {
       remoteVideo.srcObject = stream;
       if (videoContainer) videoContainer.classList.add('active');
+      remoteVideo.play().catch(e => console.log('remoteVideo play err:', e));
+    } else {
+      remoteAudio.srcObject = stream;
+      remoteAudio.play().catch(e => console.log('remoteAudio play err:', e));
     }
-    // ALWAYS attach audio track to remoteAudio element
-    if (!remoteAudio.srcObject) remoteAudio.srcObject = stream;
-    remoteAudio.play().catch(()=>{});
   };
   
   if (localStream) {
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
   }
   
-  let failTimeout = null;
-  pc.onconnectionstatechange = () => {
-    console.log('[WebRTC] state:', pc.connectionState);
-    if (pc.connectionState === 'connected') {
-      clearTimeout(failTimeout);
-      stopRingtone();
+  function handleConnected() {
+    console.log('[WebRTC] Call connected successfully');
+    stopRingtone();
+    if (activeStatus.textContent === 'Соединение...') {
       activeStatus.textContent = '00:00';
       startCallTimer();
-    } else if (pc.connectionState === 'disconnected') {
-      // Give 8s to reconnect before ending
-      failTimeout = setTimeout(() => {
-        if (pc.connectionState !== 'connected') endCall(true);
-      }, 8000);
+    }
+  }
+
+  pc.oniceconnectionstatechange = () => {
+    console.log('[WebRTC] iceConnectionState:', pc.iceConnectionState);
+    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+      handleConnected();
+    } else if (pc.iceConnectionState === 'failed') {
+      endCall(true);
+    }
+  };
+  
+  pc.onconnectionstatechange = () => {
+    console.log('[WebRTC] connectionState:', pc.connectionState);
+    if (pc.connectionState === 'connected') {
+      handleConnected();
     } else if (pc.connectionState === 'failed') {
-      clearTimeout(failTimeout);
       endCall(true);
     }
   };
@@ -1206,9 +1209,13 @@ async function startCall(isVideo) {
   currentCallPeerId = peer.id;
   currentCallIsVideo = isVideo;
   callState = 'active';
-  iceCandidateQueue = []; // Reset queue for new call
+  iceCandidateQueue = [];
+  remoteDescSet = false;
   
   try {
+    // Prime audio for iOS Safari playback
+    remoteAudio.play().catch(()=>{});
+    
     await getMedia(isVideo);
     showActiveModal(peer.username);
     playRingtone();
@@ -1241,6 +1248,9 @@ function endCall(remoteHangup = false) {
   callState = 'idle';
   currentCallPeerId = null;
   incomingCallData = null;
+  iceCandidateQueue = [];
+  remoteDescSet = false;
+  
   incomingModal.classList.remove('active');
   activeModal.classList.remove('active');
   
@@ -1270,17 +1280,20 @@ btnAcceptCall.onclick = async () => {
   currentCallPeerId = data.fromId;
   currentCallIsVideo = data.isVideo;
   callState = 'active';
-  iceCandidateQueue = []; // Reset queue
   
   try {
+    // Prime audio for iOS Safari playback on user click gesture
+    remoteAudio.play().catch(()=>{});
+    
     await getMedia(data.isVideo);
     showActiveModal(data.senderName);
     
     rtcPeer = createPeerConnection(data.fromId);
     await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
     remoteDescSet = true;
-    await drainIceQueue(rtcPeer); // Apply any queued ICE candidates
-    const answer = await rtcPeer.createAnswer();
+    await drainIceQueue(rtcPeer);
+    
+    const answer = await rtcPeer.createAnswer({ offerToReceiveAudio: true, offerToReceiveVideo: data.isVideo });
     await rtcPeer.setLocalDescription(answer);
     
     socket.emit('webrtc_answer', { toId: data.fromId, fromId: me.id, answer });
@@ -1322,6 +1335,8 @@ function setupWebRTCSocket(sock) {
     
     incomingCallData = { ...data, senderName };
     callState = 'ringing';
+    iceCandidateQueue = [];
+    remoteDescSet = false;
     
     document.getElementById('incoming-name').textContent = senderName;
     document.getElementById('incoming-avatar').textContent = senderName[0].toUpperCase();
@@ -1332,22 +1347,28 @@ function setupWebRTCSocket(sock) {
   sock.on('webrtc_answer', async (data) => {
     if (callState === 'active' && rtcPeer && currentCallPeerId === data.fromId) {
       try {
+        stopRingtone();
         await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.answer));
         remoteDescSet = true;
-        await drainIceQueue(rtcPeer); // Apply queued ICE candidates now
-      } catch(e){ console.error('[WebRTC] answer err', e); }
+        await drainIceQueue(rtcPeer);
+      } catch(e){
+        console.error('[WebRTC] answer err', e);
+      }
     }
   });
   
   sock.on('webrtc_ice', async (data) => {
-    if (!rtcPeer || currentCallPeerId !== data.fromId) return;
-    if (!remoteDescSet) {
-      // Queue it — remote desc not set yet
+    const isTarget = (currentCallPeerId === data.fromId) || (incomingCallData && incomingCallData.fromId === data.fromId);
+    if (!isTarget) return;
+    
+    if (!rtcPeer || !remoteDescSet) {
       iceCandidateQueue.push(data.candidate);
     } else {
       try {
         await rtcPeer.addIceCandidate(new RTCIceCandidate(data.candidate));
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[WebRTC] addIceCandidate err:', e);
+      }
     }
   });
   
