@@ -308,7 +308,7 @@ input:checked + .slider:before{transform:translateX(20px)}
 .empty-chat p{font-size:.8rem}
 
 /* Bubbles */
-.mrow{display:flex;align-items:flex-end;gap:.4rem}
+.mrow{display:flex;align-items:flex-end;gap:.4rem;user-select:none;-webkit-user-select:none}
 .mrow.me{justify-content:flex-end}
 .mrow.them{justify-content:flex-start}
 .bubble.msg{
@@ -1093,6 +1093,7 @@ function addMsg(id,rawContent,isMe,ts,isRead=false){
   };
   row.onpointerup = () => clearTimeout(pressTimer);
   row.onpointercancel = () => clearTimeout(pressTimer);
+  row.onpointerleave = () => clearTimeout(pressTimer);
   
   row.onclick = (e) => {
     clearTimeout(pressTimer);
