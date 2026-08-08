@@ -746,6 +746,11 @@ async function genKeys(){
 }
 async function importPub(jwk){ return crypto.subtle.importKey('jwk', jwk, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']); }
 async function importPriv(jwk){ return crypto.subtle.importKey('jwk', jwk, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']); }
+function buf2b64(b){
+  const bytes = new Uint8Array(b); let binary = ''; const len = bytes.byteLength; const chunk = 0x8000;
+  for(let i=0; i<len; i+=chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i+chunk, len)));
+  return btoa(binary);
+}
 function b642buf(s){
   if (!s || typeof s !== 'string') return new ArrayBuffer(0);
   try {
