@@ -186,6 +186,7 @@ app.post('/api/register', async (req, res) => {
   const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
 
   try {
+    const existing = await dbGet('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     const encKeyStr = typeof encryptedPrivKey === 'object' ? JSON.stringify(encryptedPrivKey) : String(encryptedPrivKey || '');
 
     if (existing) {
