@@ -181,6 +181,53 @@ html,body{
   cursor:pointer;transition:all .15s;
 }
 .friend-toggle-btn:hover{border-color:var(--border-light)}
+.call-btn{
+  background:none;border:1px solid var(--border);color:var(--text);
+  border-radius:6px;padding:.3rem;font-size:1rem;cursor:pointer;
+  transition:all .15s;display:flex;align-items:center;justify-content:center;
+}
+.call-btn:hover{border-color:var(--border-light);background:var(--card)}
+
+/* Call Overlays */
+.call-overlay{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(0,0,0,0.85);backdrop-filter:blur(10px);
+  z-index:9999;display:none;flex-direction:column;
+  align-items:center;justify-content:center;color:#fff;
+}
+.call-overlay.active{display:flex}
+.call-avatar{
+  width:100px;height:100px;border-radius:50%;
+  background:var(--card);color:var(--accent);font-size:2.5rem;
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:1rem;border:2px solid var(--accent);
+}
+.call-name{font-size:1.5rem;font-weight:600;margin-bottom:.5rem}
+.call-status{font-size:1rem;color:rgba(255,255,255,0.7);margin-bottom:2rem}
+.call-actions{display:flex;gap:1.5rem}
+.call-action-btn{
+  width:60px;height:60px;border-radius:50%;border:none;
+  font-size:1.5rem;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  color:#fff;transition:transform .15s;
+}
+.call-action-btn:hover{transform:scale(1.05)}
+.btn-accept{background:#28a745}
+.btn-reject{background:#dc3545}
+.btn-toggle{background:rgba(255,255,255,0.2)}
+.btn-toggle.muted{background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.5)}
+
+.video-container{
+  position:relative;width:100%;max-width:800px;height:60vh;
+  margin-bottom:2rem;display:none;background:#000;border-radius:12px;
+  overflow:hidden;
+}
+.video-container.active{display:block}
+#remote-video{width:100%;height:100%;object-fit:cover;}
+#local-video{
+  position:absolute;bottom:1rem;right:1rem;width:120px;height:160px;
+  background:#111;border-radius:8px;object-fit:cover;border:2px solid rgba(255,255,255,0.2);
+}
+
 
 /* Messages */
 .msgs{
@@ -355,7 +402,7 @@ html,body{
         <div class="tabs">
           <button class="tab-btn active" id="tab-chats">Чаты</button>
           <button class="tab-btn" id="tab-friends">Друзья</button>
-          <button class="tab-btn" id="tab-search">Поиск</button>
+          <button class="fab" id="fab-search">+</button>
         </div>
 
         <div class="sb-search" id="search-box-wrap" style="display:none;margin-bottom:.5rem">
@@ -388,7 +435,9 @@ html,body{
             <div class="chat-hdr-name" id="peer-name">—</div>
             <div class="chat-hdr-sub">🔒 Зашифровано</div>
           </div>
-          <button class="friend-toggle-btn" id="friend-toggle-btn">+ В друзья</button>
+          <button class="friend-toggle-btn" id="friend-toggle-btn" style="display:none"></button>
+          <button class="call-btn" id="call-audio-btn" style="display:none" title="Аудиозвонок">📞</button>
+          <button class="call-btn" id="call-video-btn" style="display:none" title="Видеозвонок">📹</button>
         </div>
 
         <div class="msgs" id="msgs">
@@ -422,6 +471,33 @@ html,body{
 </div>
 
 <div id="toast"></div>
+
+<!-- WebRTC Call Overlays -->
+<div class="call-overlay" id="incoming-call-modal">
+  <div class="call-avatar" id="incoming-avatar">?</div>
+  <div class="call-name" id="incoming-name">Имя</div>
+  <div class="call-status">Входящий звонок...</div>
+  <div class="call-actions">
+    <button class="call-action-btn btn-reject" id="btn-reject-call">✖</button>
+    <button class="call-action-btn btn-accept" id="btn-accept-call">📞</button>
+  </div>
+</div>
+
+<div class="call-overlay" id="active-call-modal">
+  <div class="video-container" id="video-container">
+    <video id="remote-video" autoplay playsinline></video>
+    <video id="local-video" autoplay playsinline muted></video>
+  </div>
+  <div class="call-avatar" id="active-avatar">?</div>
+  <div class="call-name" id="active-name">Имя</div>
+  <div class="call-status" id="active-status">Соединение...</div>
+  <div class="call-actions">
+    <button class="call-action-btn btn-toggle" id="btn-toggle-mic" title="Микрофон">🎤</button>
+    <button class="call-action-btn btn-toggle" id="btn-toggle-vid" title="Камера" style="display:none">📹</button>
+    <button class="call-action-btn btn-reject" id="btn-hangup">✖</button>
+  </div>
+</div>
+<audio id="remote-audio" autoplay></audio>
 
 <script>
 // ═══════════════════════════════════════
@@ -926,6 +1002,295 @@ window.addEventListener('DOMContentLoaded',async ()=>{
     localStorage.clear();
   }
 });
+
+// ═══════════════════════════════════════
+// WEBRTC CALLS
+// ═══════════════════════════════════════
+const callAudioBtn=document.getElementById('call-audio-btn');
+const callVideoBtn=document.getElementById('call-video-btn');
+const incomingModal=document.getElementById('incoming-call-modal');
+const activeModal=document.getElementById('active-call-modal');
+const btnAcceptCall=document.getElementById('btn-accept-call');
+const btnRejectCall=document.getElementById('btn-reject-call');
+const btnHangup=document.getElementById('btn-hangup');
+const btnToggleMic=document.getElementById('btn-toggle-mic');
+const btnToggleVid=document.getElementById('btn-toggle-vid');
+const videoContainer=document.getElementById('video-container');
+const remoteVideo=document.getElementById('remote-video');
+const localVideo=document.getElementById('local-video');
+const remoteAudio=document.getElementById('remote-audio');
+const activeStatus=document.getElementById('active-status');
+
+let rtcPeer = null;
+let localStream = null;
+let callState = 'idle'; // idle, ringing, active
+let currentCallPeerId = null;
+let currentCallIsVideo = false;
+let incomingCallData = null;
+
+// Ringtone oscillator
+let ringtoneInterval = null;
+function playRingtone() {
+  if (ringtoneInterval) return;
+  ringtoneInterval = setInterval(() => {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    try{
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(480, audioCtx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.1);
+      gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.5);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 1.5);
+    }catch(e){}
+  }, 2000);
+}
+function stopRingtone() {
+  if (ringtoneInterval) {
+    clearInterval(ringtoneInterval);
+    ringtoneInterval = null;
+  }
+}
+
+async function getMedia(isVideo) {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+    localStream = stream;
+    if (isVideo) {
+      localVideo.srcObject = stream;
+      videoContainer.classList.add('active');
+      btnToggleVid.style.display = 'flex';
+    } else {
+      videoContainer.classList.remove('active');
+      btnToggleVid.style.display = 'none';
+    }
+    return stream;
+  } catch (e) {
+    toast('Ошибка доступа к микрофону/камере');
+    throw e;
+  }
+}
+
+function stopMedia() {
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  localVideo.srcObject = null;
+  remoteVideo.srcObject = null;
+  remoteAudio.srcObject = null;
+}
+
+function createPeerConnection(peerId) {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  
+  pc.onicecandidate = (event) => {
+    if (event.candidate && socket) {
+      socket.emit('webrtc_ice', { toId: peerId, fromId: me.id, candidate: event.candidate });
+    }
+  };
+  
+  pc.ontrack = (event) => {
+    if (event.track.kind === 'video') {
+      remoteVideo.srcObject = event.streams[0];
+    } else {
+      remoteAudio.srcObject = event.streams[0];
+    }
+  };
+  
+  if (localStream) {
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  }
+  
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') {
+      activeStatus.textContent = '00:00';
+      startCallTimer();
+    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      endCall(true);
+    }
+  };
+  
+  return pc;
+}
+
+let callTimerInt = null;
+let callSecs = 0;
+function startCallTimer() {
+  callSecs = 0;
+  clearInterval(callTimerInt);
+  callTimerInt = setInterval(() => {
+    callSecs++;
+    const m = String(Math.floor(callSecs / 60)).padStart(2, '0');
+    const s = String(callSecs % 60).padStart(2, '0');
+    activeStatus.textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+function showActiveModal(name) {
+  incomingModal.classList.remove('active');
+  document.getElementById('active-name').textContent = name;
+  document.getElementById('active-avatar').textContent = name[0].toUpperCase();
+  activeStatus.textContent = 'Соединение...';
+  activeModal.classList.add('active');
+}
+
+async function startCall(isVideo) {
+  if (!currentPeer) return;
+  currentCallPeerId = currentPeer.id;
+  currentCallIsVideo = isVideo;
+  callState = 'active';
+  
+  try {
+    await getMedia(isVideo);
+    showActiveModal(currentPeer.username);
+    playRingtone(); // Play until answered
+    
+    rtcPeer = createPeerConnection(currentPeer.id);
+    const offer = await rtcPeer.createOffer();
+    await rtcPeer.setLocalDescription(offer);
+    
+    socket.emit('webrtc_offer', { toId: currentPeer.id, fromId: me.id, offer, isVideo });
+  } catch (e) {
+    endCall();
+  }
+}
+
+function endCall(remoteHangup = false) {
+  if (callState === 'idle') return;
+  if (!remoteHangup && currentCallPeerId && socket) {
+    socket.emit('webrtc_hangup', { toId: currentCallPeerId, fromId: me.id });
+  }
+  
+  stopRingtone();
+  clearInterval(callTimerInt);
+  if (rtcPeer) {
+    rtcPeer.close();
+    rtcPeer = null;
+  }
+  stopMedia();
+  
+  callState = 'idle';
+  currentCallPeerId = null;
+  incomingCallData = null;
+  incomingModal.classList.remove('active');
+  activeModal.classList.remove('active');
+  
+  // Reset buttons
+  btnToggleMic.classList.remove('muted');
+  btnToggleMic.textContent = '🎤';
+  btnToggleVid.classList.remove('muted');
+  btnToggleVid.textContent = '📹';
+}
+
+callAudioBtn.onclick = () => startCall(false);
+callVideoBtn.onclick = () => startCall(true);
+
+btnHangup.onclick = () => endCall();
+btnRejectCall.onclick = () => {
+  if (incomingCallData && socket) {
+    socket.emit('webrtc_reject', { toId: incomingCallData.fromId, fromId: me.id });
+  }
+  endCall();
+};
+
+btnAcceptCall.onclick = async () => {
+  if (!incomingCallData) return;
+  const data = incomingCallData;
+  stopRingtone();
+  incomingModal.classList.remove('active');
+  currentCallPeerId = data.fromId;
+  currentCallIsVideo = data.isVideo;
+  callState = 'active';
+  
+  try {
+    await getMedia(data.isVideo);
+    showActiveModal(data.senderName);
+    
+    rtcPeer = createPeerConnection(data.fromId);
+    await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
+    const answer = await rtcPeer.createAnswer();
+    await rtcPeer.setLocalDescription(answer);
+    
+    socket.emit('webrtc_answer', { toId: data.fromId, fromId: me.id, answer });
+  } catch (e) {
+    endCall();
+  }
+};
+
+btnToggleMic.onclick = () => {
+  if (!localStream) return;
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (audioTrack) {
+    audioTrack.enabled = !audioTrack.enabled;
+    btnToggleMic.classList.toggle('muted');
+    btnToggleMic.textContent = audioTrack.enabled ? '🎤' : '🔇';
+  }
+};
+
+btnToggleVid.onclick = () => {
+  if (!localStream) return;
+  const videoTrack = localStream.getVideoTracks()[0];
+  if (videoTrack) {
+    videoTrack.enabled = !videoTrack.enabled;
+    btnToggleVid.classList.toggle('muted');
+    btnToggleVid.textContent = videoTrack.enabled ? '📹' : '🙈';
+  }
+};
+
+function setupWebRTCSocket(sock) {
+  sock.on('webrtc_offer', async (data) => {
+    if (callState !== 'idle') {
+      sock.emit('webrtc_reject', { toId: data.fromId, fromId: me.id });
+      return;
+    }
+    let senderName = 'Неизвестный';
+    const friend = friendsCache.find(f => f.id === data.fromId);
+    if (friend) senderName = friend.username;
+    
+    incomingCallData = { ...data, senderName };
+    callState = 'ringing';
+    
+    document.getElementById('incoming-name').textContent = senderName;
+    document.getElementById('incoming-avatar').textContent = senderName[0].toUpperCase();
+    incomingModal.classList.add('active');
+    playRingtone();
+  });
+  
+  sock.on('webrtc_answer', async (data) => {
+    if (callState === 'active' && rtcPeer && currentCallPeerId === data.fromId) {
+      stopRingtone();
+      await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.answer));
+    }
+  });
+  
+  sock.on('webrtc_ice', async (data) => {
+    if (rtcPeer && currentCallPeerId === data.fromId) {
+      try {
+        await rtcPeer.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (e) {}
+    }
+  });
+  
+  sock.on('webrtc_reject', (data) => {
+    if (currentCallPeerId === data.fromId) {
+      toast('Абонент отклонил вызов');
+      endCall(true);
+    }
+  });
+  
+  sock.on('webrtc_hangup', (data) => {
+    if (currentCallPeerId === data.fromId) {
+      toast('Звонок завершен');
+      endCall(true);
+    }
+  });
+}
 
 // START APP
 function startApp(){

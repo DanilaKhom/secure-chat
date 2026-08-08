@@ -447,6 +447,47 @@ io.on('connection', (socket) => {
     }
   });
 
+  // --- WebRTC Signaling ---
+  socket.on('webrtc_offer', (data) => {
+    // data: { toId, fromId, offer, isVideo }
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('webrtc_offer', data);
+    }
+  });
+
+  socket.on('webrtc_answer', (data) => {
+    // data: { toId, fromId, answer }
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('webrtc_answer', data);
+    }
+  });
+
+  socket.on('webrtc_ice', (data) => {
+    // data: { toId, fromId, candidate }
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('webrtc_ice', data);
+    }
+  });
+
+  socket.on('webrtc_reject', (data) => {
+    // data: { toId, fromId }
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('webrtc_reject', data);
+    }
+  });
+
+  socket.on('webrtc_hangup', (data) => {
+    // data: { toId, fromId }
+    const rSockets = userSockets.get(String(data.toId));
+    if (rSockets) {
+      for (const sid of rSockets) io.to(sid).emit('webrtc_hangup', data);
+    }
+  });
+
   socket.on('disconnect', () => {
     const uid = socket.data.userId;
     if (uid && userSockets.has(uid)) {
