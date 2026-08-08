@@ -494,6 +494,7 @@ html,body{
 <div class="call-overlay" id="active-call-modal">
   <div class="video-container" id="video-container">
     <video id="remote-video" autoplay playsinline webkit-playsinline></video>
+    <img id="remote-img" style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;top:0;left:0;border-radius:12px;"/>
     <video id="local-video" autoplay playsinline webkit-playsinline muted></video>
   </div>
   <div class="call-avatar" id="active-avatar">?</div>
@@ -1119,6 +1120,7 @@ function startAudioRelay(stream, targetId) {
     const currentRate = audioRelayCtx.sampleRate || 44100;
     audioSourceNode = audioRelayCtx.createMediaStreamSource(stream);
     audioScriptNode = audioRelayCtx.createScriptProcessor(4096, 1, 1);
+    
     audioScriptNode.onaudioprocess = (e) => {
       if (callState !== 'active') return;
       const input = e.inputBuffer.getChannelData(0);
@@ -1131,14 +1133,19 @@ function startAudioRelay(stream, targetId) {
         socket.emit('call_audio', { toId: targetId, fromId: me.id, pcm: pcm16.buffer, rate: currentRate });
       }
     };
+
+    // Zero-gain to keep processing active without speaker feedback on mobile
+    const zeroGain = audioRelayCtx.createGain();
+    zeroGain.gain.value = 0;
     audioSourceNode.connect(audioScriptNode);
-    audioScriptNode.connect(audioRelayCtx.destination);
+    audioScriptNode.connect(zeroGain);
+    zeroGain.connect(audioRelayCtx.destination);
   } catch (err) {
     console.warn('startAudioRelay non-fatal err:', err);
   }
 }
 
-function playIncomingPCM(arrayBuffer, rate) {
+function playIncomingPCM(rawBuffer, rate) {
   if (callState !== 'active') return;
   try {
     if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
@@ -1147,7 +1154,17 @@ function playIncomingPCM(arrayBuffer, rate) {
     if (audioRelayCtx.state === 'suspended') {
       audioRelayCtx.resume();
     }
-    const pcm16 = new Int16Array(arrayBuffer);
+    
+    // Robust binary unpacking across Chrome, Safari, Android Socket.io formats
+    let pcm16;
+    if (rawBuffer instanceof ArrayBuffer) {
+      pcm16 = new Int16Array(rawBuffer);
+    } else if (rawBuffer && rawBuffer.buffer instanceof ArrayBuffer) {
+      pcm16 = new Int16Array(rawBuffer.buffer, rawBuffer.byteOffset || 0, (rawBuffer.byteLength || rawBuffer.length * 2) / 2);
+    } else {
+      pcm16 = new Int16Array(rawBuffer);
+    }
+    
     const sampleRate = rate || audioRelayCtx.sampleRate || 44100;
     const audioBuffer = audioRelayCtx.createBuffer(1, pcm16.length, sampleRate);
     const channelData = audioBuffer.getChannelData(0);
@@ -1176,14 +1193,20 @@ function startVideoRelay(targetId) {
   canvas.height = 240;
   const ctx = canvas.getContext('2d');
   
+  if (localVideo) {
+    localVideo.play().catch(()=>{});
+  }
+  
   videoRelayInterval = setInterval(() => {
     if (callState !== 'active' || !localVideo || !socket || !targetId) return;
     try {
-      ctx.drawImage(localVideo, 0, 0, 320, 240);
-      const frameData = canvas.toDataURL('image/jpeg', 0.4);
-      socket.emit('call_video_frame', { toId: targetId, fromId: me.id, frame: frameData });
+      if (localVideo.videoWidth > 0 || localVideo.readyState >= 2) {
+        ctx.drawImage(localVideo, 0, 0, 320, 240);
+        const frameData = canvas.toDataURL('image/jpeg', 0.4);
+        socket.emit('call_video_frame', { toId: targetId, fromId: me.id, frame: frameData });
+      }
     } catch(e){}
-  }, 180);
+  }, 140);
 }
 
 function stopRelays() {
@@ -1209,9 +1232,11 @@ function stopMedia() {
     localStream = null;
   }
   if (localVideo) localVideo.srcObject = null;
-  if (remoteVideo) {
-    remoteVideo.srcObject = null;
-    remoteVideo.poster = '';
+  if (remoteVideo) remoteVideo.srcObject = null;
+  const rImg = document.getElementById('remote-img');
+  if (rImg) {
+    rImg.src = '';
+    rImg.style.display = 'none';
   }
   if (remoteAudio) remoteAudio.srcObject = null;
 }
@@ -1252,6 +1277,9 @@ function createPeerConnection(peerId) {
     const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
     if (event.track.kind === 'video') {
       remoteVideo.srcObject = stream;
+      remoteVideo.style.display = 'block';
+      const rImg = document.getElementById('remote-img');
+      if (rImg) rImg.style.display = 'none';
       if (videoContainer) videoContainer.classList.add('active');
       remoteVideo.play().catch(e => console.log('remoteVideo play err:', e));
     } else {
@@ -1313,13 +1341,20 @@ function showActiveModal(name) {
 
 async function startCall(isVideo) {
   if (!peer) return;
+  
+  // Synchronously wake up AudioContext on user gesture
+  if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
+    audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  audioRelayCtx.resume();
+  remoteAudio.play().catch(()=>{});
+
   currentCallPeerId = peer.id;
   currentCallIsVideo = isVideo;
   callState = 'active';
   iceCandidateQueue = [];
   remoteDescSet = false;
   
-  remoteAudio.play().catch(()=>{});
   showActiveModal(peer.username);
   playRingtone();
 
@@ -1389,6 +1424,14 @@ btnRejectCall.onclick = () => {
 
 btnAcceptCall.onclick = async () => {
   if (!incomingCallData) return;
+  
+  // Synchronously wake up AudioContext on user gesture
+  if (!audioRelayCtx || audioRelayCtx.state === 'closed') {
+    audioRelayCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  audioRelayCtx.resume();
+  remoteAudio.play().catch(()=>{});
+
   const data = incomingCallData;
   stopRingtone();
   incomingModal.classList.remove('active');
@@ -1396,7 +1439,6 @@ btnAcceptCall.onclick = async () => {
   currentCallIsVideo = data.isVideo;
   callState = 'active';
   
-  remoteAudio.play().catch(()=>{});
   showActiveModal(data.senderName);
   activeStatus.textContent = '00:00';
   startCallTimer();
