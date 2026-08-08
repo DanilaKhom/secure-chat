@@ -1064,8 +1064,8 @@ selectionCloseBtn.onclick = () => toggleSelectionMode(false);
 selectionDeleteBtn.onclick = () => {
   if (selectedMessageIds.size === 0) return;
   if (confirm(`Удалить выбранные сообщения (${selectedMessageIds.size} шт.) у всех безвозвратно?`)) {
-    if (socket && currentPeer) {
-      socket.emit('delete_messages', { messageIds: Array.from(selectedMessageIds), peerId: currentPeer.id });
+    if (socket && peer) {
+      socket.emit('delete_messages', { messageIds: Array.from(selectedMessageIds), peerId: peer.id });
     }
     toggleSelectionMode(false);
   }
@@ -1087,7 +1087,7 @@ function addMsg(id,rawContent,isMe,ts,isRead=false){
     pressTimer = setTimeout(() => {
       if (!isSelectionMode) {
         toggleSelectionMode(true);
-        toggleRowSelection(row, id);
+        toggleRowSelection(row);
       }
     }, 500);
   };
@@ -1100,17 +1100,18 @@ function addMsg(id,rawContent,isMe,ts,isRead=false){
       // prevent opening images in selection mode
       e.stopPropagation();
       e.preventDefault();
-      toggleRowSelection(row, id);
+      toggleRowSelection(row);
     }
   };
 
-  function toggleRowSelection(r, msgId) {
-    if (selectedMessageIds.has(msgId)) {
-      selectedMessageIds.delete(msgId);
+  function toggleRowSelection(r) {
+    const currentMsgId = r.dataset.id;
+    if (selectedMessageIds.has(currentMsgId)) {
+      selectedMessageIds.delete(currentMsgId);
       r.classList.remove('selected');
       if (selectedMessageIds.size === 0) toggleSelectionMode(false);
     } else {
-      selectedMessageIds.add(msgId);
+      selectedMessageIds.add(currentMsgId);
       r.classList.add('selected');
     }
     updateSelectionCount();
