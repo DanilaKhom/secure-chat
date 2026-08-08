@@ -1094,27 +1094,46 @@ function stopMedia() {
   remoteAudio.srcObject = null;
 }
 
+// ICE candidate queue (needed when candidates arrive before setRemoteDescription)
+let iceCandidateQueue = [];
+let remoteDescSet = false;
+
+async function drainIceQueue(pc) {
+  for (const c of iceCandidateQueue) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
+  }
+  iceCandidateQueue = [];
+}
+
 function createPeerConnection(peerId) {
+  remoteDescSet = false;
   const pc = new RTCPeerConnection({
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
       {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
+        urls: ['turn:fr-turn1.xirsys.com:80?transport=udp', 'turn:fr-turn1.xirsys.com:3478?transport=udp', 'turn:fr-turn1.xirsys.com:80?transport=tcp', 'turn:fr-turn1.xirsys.com:3478?transport=tcp', 'turns:fr-turn1.xirsys.com:443?transport=tcp'],
+        username: 'uOKXrO2jZ_3lJBPHmHr-XqNFv8_kMdOVTCfFjMnbmfk-_1PrBXKr3bq0lIv4j9x3AAAAAGihp1Zzd5FxX2M=',
+        credential: 'b2IzYjVkNjEtNzQ1Ny0xMWYwLWI0YTItMjNhNGE1ZWZlYTli'
       },
       {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
+        urls: 'turn:relay.metered.ca:80',
+        username: 'e4f9f2a68c7e78a79c3a44f1',
+        credential: 'aN1lNBjc+mYCt8w6'
       },
       {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
+        urls: 'turn:relay.metered.ca:443',
+        username: 'e4f9f2a68c7e78a79c3a44f1',
+        credential: 'aN1lNBjc+mYCt8w6'
+      },
+      {
+        urls: 'turns:relay.metered.ca:443?transport=tcp',
+        username: 'e4f9f2a68c7e78a79c3a44f1',
+        credential: 'aN1lNBjc+mYCt8w6'
       }
-    ]
+    ],
+    iceCandidatePoolSize: 10
   });
   
   pc.onicecandidate = (event) => {
@@ -1124,22 +1143,36 @@ function createPeerConnection(peerId) {
   };
   
   pc.ontrack = (event) => {
+    // Always use first stream, attach to remote audio for audio calls
+    const stream = event.streams[0];
     if (event.track.kind === 'video') {
-      remoteVideo.srcObject = event.streams[0];
-    } else {
-      remoteAudio.srcObject = event.streams[0];
+      remoteVideo.srcObject = stream;
+      if (videoContainer) videoContainer.classList.add('active');
     }
+    // ALWAYS attach audio track to remoteAudio element
+    if (!remoteAudio.srcObject) remoteAudio.srcObject = stream;
+    remoteAudio.play().catch(()=>{});
   };
   
   if (localStream) {
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
   }
   
+  let failTimeout = null;
   pc.onconnectionstatechange = () => {
+    console.log('[WebRTC] state:', pc.connectionState);
     if (pc.connectionState === 'connected') {
+      clearTimeout(failTimeout);
+      stopRingtone();
       activeStatus.textContent = '00:00';
       startCallTimer();
-    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+    } else if (pc.connectionState === 'disconnected') {
+      // Give 8s to reconnect before ending
+      failTimeout = setTimeout(() => {
+        if (pc.connectionState !== 'connected') endCall(true);
+      }, 8000);
+    } else if (pc.connectionState === 'failed') {
+      clearTimeout(failTimeout);
       endCall(true);
     }
   };
@@ -1173,18 +1206,20 @@ async function startCall(isVideo) {
   currentCallPeerId = peer.id;
   currentCallIsVideo = isVideo;
   callState = 'active';
+  iceCandidateQueue = []; // Reset queue for new call
   
   try {
     await getMedia(isVideo);
     showActiveModal(peer.username);
-    playRingtone(); // Play until answered
+    playRingtone();
     
     rtcPeer = createPeerConnection(peer.id);
-    const offer = await rtcPeer.createOffer();
+    const offer = await rtcPeer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
     await rtcPeer.setLocalDescription(offer);
     
     socket.emit('webrtc_offer', { toId: peer.id, fromId: me.id, offer, isVideo });
   } catch (e) {
+    console.error('[WebRTC] startCall err:', e);
     endCall();
   }
 }
@@ -1235,6 +1270,7 @@ btnAcceptCall.onclick = async () => {
   currentCallPeerId = data.fromId;
   currentCallIsVideo = data.isVideo;
   callState = 'active';
+  iceCandidateQueue = []; // Reset queue
   
   try {
     await getMedia(data.isVideo);
@@ -1242,11 +1278,14 @@ btnAcceptCall.onclick = async () => {
     
     rtcPeer = createPeerConnection(data.fromId);
     await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
+    remoteDescSet = true;
+    await drainIceQueue(rtcPeer); // Apply any queued ICE candidates
     const answer = await rtcPeer.createAnswer();
     await rtcPeer.setLocalDescription(answer);
     
     socket.emit('webrtc_answer', { toId: data.fromId, fromId: me.id, answer });
   } catch (e) {
+    console.error('[WebRTC] acceptCall err:', e);
     endCall();
   }
 };
@@ -1292,13 +1331,20 @@ function setupWebRTCSocket(sock) {
   
   sock.on('webrtc_answer', async (data) => {
     if (callState === 'active' && rtcPeer && currentCallPeerId === data.fromId) {
-      stopRingtone();
-      await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.answer));
+      try {
+        await rtcPeer.setRemoteDescription(new RTCSessionDescription(data.answer));
+        remoteDescSet = true;
+        await drainIceQueue(rtcPeer); // Apply queued ICE candidates now
+      } catch(e){ console.error('[WebRTC] answer err', e); }
     }
   });
   
   sock.on('webrtc_ice', async (data) => {
-    if (rtcPeer && currentCallPeerId === data.fromId) {
+    if (!rtcPeer || currentCallPeerId !== data.fromId) return;
+    if (!remoteDescSet) {
+      // Queue it — remote desc not set yet
+      iceCandidateQueue.push(data.candidate);
+    } else {
       try {
         await rtcPeer.addIceCandidate(new RTCIceCandidate(data.candidate));
       } catch (e) {}
