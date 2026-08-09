@@ -362,11 +362,22 @@ input:checked + .slider:before{transform:translateX(20px)}
 .empty-chat p{font-size:.8rem}
 
 /* Bubbles */
-.mrow{display:flex;align-items:flex-end;gap:.4rem;user-select:none;-webkit-user-select:none}
+.mrow{display:flex;align-items:flex-end;gap:.4rem;user-select:none;-webkit-user-select:none;margin-bottom:3px;width:100%}
 .mrow.me{justify-content:flex-end}
 .mrow.them{justify-content:flex-start}
+
+.mrow-inner{
+  display:flex;flex-direction:column;
+  width:fit-content;max-width:82%;
+  flex-shrink:0;
+}
+.mrow.me .mrow-inner{align-items:flex-end}
+.mrow.them .mrow-inner{align-items:flex-start}
+
 .bubble.msg{
-  width:fit-content;min-width:42px;max-width:85%;
+  display:inline-block;
+  width:fit-content;
+  max-width:100%;
   padding:.55rem .85rem;border-radius:14px;
   font-size:.92rem;line-height:1.38;position:relative;
   word-break:normal;overflow-wrap:break-word;white-space:pre-wrap;
@@ -1346,11 +1357,7 @@ function addMsg(id,rawContent,isMe,ts,isRead=false){
   }
 
   const inner=document.createElement('div');
-  inner.style.display='flex';
-  inner.style.flexDirection='column';
-  inner.style.alignItems=isMe?'flex-end':'flex-start';
-  inner.style.maxWidth='85%';
-  inner.style.minWidth='0';
+  inner.className='mrow-inner';
 
   const bub=document.createElement('div');
   bub.className='bubble msg';
