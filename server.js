@@ -777,20 +777,25 @@ initDb().then(() => {
     console.log(`\n🚀 Chat server running on http://0.0.0.0:${PORT}\n`);
     
     // Keep-alive self-ping (every 8 minutes) to prevent Render free-tier sleeping
-    const targetUrl = process.env.RENDER_EXTERNAL_URL || 'https://friedlychat.onrender.com';
+    const targets = [
+      process.env.RENDER_EXTERNAL_URL || 'https://friedlychat.onrender.com',
+      'https://friendly-proxy.khomyakov-danila.workers.dev'
+    ];
     const https = require('https');
     const httpModule = require('http');
     
     setInterval(() => {
-      try {
-        const client = targetUrl.startsWith('https') ? https : httpModule;
-        client.get(`${targetUrl}/api/health`, (res) => {
-          console.log(`[Keep-Alive] Pinged ${targetUrl}/api/health -> status ${res.statusCode}`);
-        }).on('error', (err) => {
-          console.log('[Keep-Alive] Ping error:', err.message);
-        });
-      } catch(e) {
-        console.error('[Keep-Alive] Error:', e);
+      for (const targetUrl of targets) {
+        try {
+          const client = targetUrl.startsWith('https') ? https : httpModule;
+          client.get(`${targetUrl}/api/health`, (res) => {
+            console.log(`[Keep-Alive] Pinged ${targetUrl}/api/health -> status ${res.statusCode}`);
+          }).on('error', (err) => {
+            console.log('[Keep-Alive] Ping error:', err.message);
+          });
+        } catch(e) {
+          console.error('[Keep-Alive] Error:', e);
+        }
       }
     }, 8 * 60 * 1000);
   });

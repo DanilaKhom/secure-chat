@@ -2385,9 +2385,28 @@ function startApp(){
   }, 10000);
 }
 
+const GATEWAYS = [
+  window.location.origin,
+  'https://friendly-proxy.khomyakov-danila.workers.dev',
+  'https://friedlychat.onrender.com'
+];
+let currentGatewayIndex = 0;
+
 // SOCKET
 function connectSocket(){
-  socket=io({transports:['websocket','polling']});
+  const gateway = GATEWAYS[currentGatewayIndex] || window.location.origin;
+  socket = io(gateway, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 8000
+  });
+
+  socket.on('connect_error', () => {
+    currentGatewayIndex = (currentGatewayIndex + 1) % GATEWAYS.length;
+  });
+
   socket.on('connect',()=>{
     socket.emit('register',me.id);
     socket.emit('get_all_statuses');
