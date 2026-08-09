@@ -94,16 +94,27 @@ async function initDb() {
   try {
     await db.execute('ALTER TABLE messages ADD COLUMN isRead INTEGER DEFAULT 0');
   } catch (e) {}
+  try {
+    await db.execute('ALTER TABLE messages ADD COLUMN expiresAt INTEGER');
+  } catch (e) {}
   console.log('DB ready');
 
-  // Clean up messages older than 24 hours periodically (every 10 minutes)
+  // Secure cleanup: wipe and remove expired messages (every 30 seconds)
   setInterval(async () => {
     try {
-      await db.execute("DELETE FROM messages WHERE timestamp < DATETIME('now', '-24 hours')");
+      const now = Date.now();
+      await db.execute({
+        sql: "UPDATE messages SET encryptedContent = '0000000000000000', senderCopy = '0000000000000000' WHERE expiresAt IS NOT NULL AND expiresAt < ?",
+        args: [now]
+      });
+      await db.execute({
+        sql: "DELETE FROM messages WHERE expiresAt IS NOT NULL AND expiresAt < ?",
+        args: [now]
+      });
     } catch(e) {
-      console.error('Auto cleanup error:', e);
+      console.error('TTL cleanup error:', e);
     }
-  }, 10 * 60 * 1000);
+  }, 30 * 1000);
 }
 
 // Helper functions to mimic sqlite interface
@@ -200,6 +211,8 @@ app.post('/api/test-push', async (req, res) => {
   }
 });
 
+const loginAttempts = new Map(); // key: user:ip -> { count, lockUntil }
+
 app.post('/api/register', async (req, res) => {
   const { username, password, publicKey, encryptedPrivKey } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Заполните все поля (никнейм и пароль)' });
@@ -214,15 +227,36 @@ app.post('/api/register', async (req, res) => {
     return res.status(400).json({ error: 'Этот никнейм недопустим (содержит ненормативную лексику)' });
   }
 
+  // Anti-Bruteforce check
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'ip';
+  const attemptKey = `${cleanUser.toLowerCase()}:${clientIp}`;
+  const attemptInfo = loginAttempts.get(attemptKey);
+
+  if (attemptInfo && attemptInfo.lockUntil && Date.now() < attemptInfo.lockUntil) {
+    const minsLeft = Math.ceil((attemptInfo.lockUntil - Date.now()) / 60000);
+    return res.status(429).json({ error: `Слишком много неверных попыток. Вход заблокирован на ${minsLeft} мин.` });
+  }
+
   const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
 
   try {
     const existing = await dbGet('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     if (existing) {
       if (existing.passwordHash && existing.passwordHash !== hash) {
-        return res.status(401).json({ error: 'Неверный пароль для этого никнейма!' });
+        const count = (attemptInfo ? attemptInfo.count : 0) + 1;
+        if (count >= 5) {
+          loginAttempts.set(attemptKey, { count, lockUntil: Date.now() + 10 * 60 * 1000 });
+          return res.status(429).json({ error: 'Неверный пароль! Превышен лимит (5 попыток). Аккаунт заблокирован на 10 минут.' });
+        } else {
+          loginAttempts.set(attemptKey, { count, lockUntil: 0 });
+          const left = 5 - count;
+          return res.status(401).json({ error: `Неверный пароль для этого никнейма! Осталось попыток: ${left}` });
+        }
       }
       
+      // Successful login -> clear failed attempts
+      loginAttempts.delete(attemptKey);
+
       // Update last seen
       await dbRun('UPDATE users SET lastSeen = ? WHERE id = ?', [Date.now(), existing.id]);
       
@@ -240,6 +274,7 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'Для регистрации нужны ключи шифрования' });
     }
 
+    loginAttempts.delete(attemptKey);
     const now = Date.now();
     const result = await dbRun('INSERT INTO users (username, publicKey, passwordHash, encryptedPrivKey, lastSeen, hideOnlineStatus) VALUES (?, ?, ?, ?, ?, 0)', [cleanUser, publicKey, hash, encryptedPrivKey, now]);
     res.json({ id: result.lastID, username: cleanUser, publicKey, encryptedPrivKey, hideOnlineStatus: 0 });
@@ -531,14 +566,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('private_message', async (data) => {
-    const { senderId, receiverId, encryptedContent, senderCopy, clientMsgId } = data;
+    const { senderId, receiverId, encryptedContent, senderCopy, clientMsgId, ttl } = data;
     console.log(`MSG from ${senderId} to ${receiverId}`);
+
+    const expiresAt = (ttl && Number(ttl) > 0) ? Date.now() + Number(ttl) * 1000 : null;
 
     // Save to DB
     try {
       const result = await dbRun(
-        'INSERT INTO messages (senderId, receiverId, encryptedContent, senderCopy, isRead) VALUES (?, ?, ?, ?, 0)',
-        [senderId, receiverId, encryptedContent, senderCopy || null]
+        'INSERT INTO messages (senderId, receiverId, encryptedContent, senderCopy, isRead, expiresAt) VALUES (?, ?, ?, ?, 0, ?)',
+        [senderId, receiverId, encryptedContent, senderCopy || null, expiresAt]
       );
 
       const message = {
@@ -547,7 +584,8 @@ io.on('connection', (socket) => {
         receiverId,
         encryptedContent,
         timestamp: new Date().toISOString(),
-        isRead: 0
+        isRead: 0,
+        expiresAt
       };
 
       // Deliver back to sender with real DB ID

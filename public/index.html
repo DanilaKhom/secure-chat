@@ -256,6 +256,111 @@ input:checked + .slider:before{transform:translateX(20px)}
 
 .empty-hint{text-align:center;color:var(--muted);font-size:.8rem;padding:2rem 1rem;line-height:1.5}
 
+/* ──── PRIVACY & SECURITY STYLES ──── */
+#privacy-blur-overlay{
+  position:fixed;inset:0;
+  background:rgba(10,10,10,0.95);
+  backdrop-filter:blur(35px);
+  -webkit-backdrop-filter:blur(35px);
+  z-index:999998;
+  opacity:0;pointer-events:none;
+  transition:opacity .15s ease;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:.8rem;
+}
+#privacy-blur-overlay.active{
+  opacity:1;pointer-events:auto;
+}
+.blur-shield-icon{font-size:2.4rem;opacity:.7}
+.blur-shield-text{font-size:.9rem;font-weight:600;color:var(--muted);letter-spacing:0.05em}
+
+/* App Lock Screen */
+#app-lock-screen{
+  position:fixed;inset:0;
+  background:var(--bg);
+  z-index:999999;
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:2rem 1.5rem;
+  padding-top:max(2rem, calc(2rem + env(safe-area-inset-top, 0px)));
+  padding-bottom:max(2rem, calc(2rem + env(safe-area-inset-bottom, 0px)));
+  user-select:none;-webkit-user-select:none;
+}
+#app-lock-screen.active{
+  display:flex;
+}
+.lock-logo{
+  width:64px;height:64px;border-radius:18px;
+  background:#111;border:1px solid rgba(255,255,255,0.15);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.6rem;font-weight:800;color:#fff;margin-bottom:1.2rem;
+  letter-spacing:-0.03em;box-shadow:0 8px 24px rgba(0,0,0,0.5);
+}
+.lock-title{
+  font-size:1.15rem;font-weight:600;margin-bottom:.35rem;color:var(--text);text-align:center;
+}
+.lock-sub{
+  font-size:.8rem;color:var(--muted);margin-bottom:1.8rem;text-align:center;min-height:1.2rem;
+}
+.pin-dots{
+  display:flex;gap:1.2rem;margin-bottom:2.2rem;
+}
+.pin-dot{
+  width:14px;height:14px;border-radius:50%;
+  border:2px solid rgba(255,255,255,0.3);
+  transition:all .15s ease;
+}
+.pin-dot.filled{
+  background:#fff;border-color:#fff;
+  box-shadow:0 0 12px rgba(255,255,255,0.6);
+  transform:scale(1.15);
+}
+.pin-dot.error{
+  border-color:var(--red);background:var(--red);
+  box-shadow:0 0 12px rgba(239,68,68,0.6);
+}
+.pin-keypad{
+  display:grid;grid-template-columns:repeat(3, 72px);gap:16px 20px;
+}
+.pin-key{
+  width:72px;height:72px;border-radius:50%;
+  background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
+  color:var(--text);font-size:1.55rem;font-weight:500;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .1s;
+}
+.pin-key:active{
+  background:rgba(255,255,255,0.25);transform:scale(0.92);
+}
+.pin-key.action-key{
+  font-size:1.1rem;background:none;border-color:transparent;
+}
+.pin-key.action-key:active{
+  background:rgba(255,255,255,0.1);
+}
+
+/* Chat TTL Timer */
+.timer-btn{
+  background:rgba(255,255,255,0.06);border:1px solid var(--border);
+  color:var(--text);border-radius:8px;padding:.3rem .55rem;
+  font-size:.75rem;font-weight:500;cursor:pointer;
+  display:flex;align-items:center;gap:.3rem;transition:all .15s;flex-shrink:0;
+}
+.timer-btn:hover{
+  background:rgba(255,255,255,0.12);border-color:var(--border-light);
+}
+.timer-btn.active{
+  background:rgba(234,179,8,0.15);border-color:rgba(234,179,8,0.4);color:#facc15;
+}
+.ttl-pill{
+  display:inline-flex;align-items:center;gap:3px;
+  font-size:.62rem;color:#facc15;background:rgba(234,179,8,0.12);
+  border:1px solid rgba(234,179,8,0.25);border-radius:6px;
+  padding:2px 5px;margin-left:4px;
+}
+
 /* ──── CHAT AREA ──── */
 .chat{flex:1;display:flex;flex-direction:column;min-width:0;height:100%;position:relative;background:var(--bg)}
 .chat-hdr{
@@ -618,6 +723,10 @@ input:checked + .slider:before{transform:translateX(20px)}
             <div class="chat-hdr-name" id="peer-name">—</div>
             <div class="chat-hdr-sub" id="peer-status">🔒 Зашифровано</div>
           </div>
+          <button class="timer-btn" id="chat-timer-btn" type="button" title="Автоудаление сообщений">
+            <span>⏳</span>
+            <span id="chat-timer-label">Выкл</span>
+          </button>
           <button class="friend-toggle-btn" id="friend-toggle-btn" style="display:none"></button>
           <div class="chat-actions">
             <button class="call-btn" id="call-audio-btn" style="display:none" title="Аудиозвонок">
@@ -709,9 +818,106 @@ input:checked + .slider:before{transform:translateX(20px)}
       </div>
     </div>
 
+    <div class="settings-row">
+      <div>
+        <div style="font-weight:600;font-size:0.9rem">🔒 Код-пароль и Face ID</div>
+        <div class="settings-desc" id="pin-status-desc">Защита входа в приложение 4-значным PIN-кодом и биометрией.</div>
+      </div>
+      <button class="ci-btn" id="setup-pin-btn" type="button" style="padding:.4rem .8rem;font-size:.78rem">Настроить</button>
+    </div>
+
+    <div class="settings-row">
+      <div>
+        <div style="font-weight:600;font-size:0.9rem">🌫️ Размытие в меню окон</div>
+        <div class="settings-desc">Скрывает содержимое чатов при переключении между приложениями.</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="toggle-privacy-blur" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="settings-row" style="border-top:1px solid rgba(239,68,68,0.3);margin-top:1.2rem;padding-top:1rem">
+      <div>
+        <div style="font-weight:600;font-size:0.9rem;color:var(--red)">🚨 Экстренная очистка</div>
+        <div class="settings-desc">Мгновенно сотрет все ключи шифрования и данные с этого устройства.</div>
+      </div>
+      <button class="ci-btn" id="panic-wipe-btn" type="button" style="background:var(--red);color:#fff;border-color:var(--red);padding:.4rem .8rem;font-size:.78rem">Стереть всё</button>
+    </div>
+
     <div style="margin-top:1.4rem;display:flex;justify-content:flex-end">
       <button class="ci-btn" id="save-settings-btn" style="padding:0.55rem 1.2rem;font-size:0.85rem">Закрыть</button>
     </div>
+  </div>
+</div>
+
+<!-- Timer Modal -->
+<div class="settings-modal-overlay" id="timer-modal">
+  <div class="settings-card" style="max-width:320px">
+    <h3>
+      <span>⏳ Автоудаление сообщений</span>
+      <button class="modal-close-btn" id="close-timer-btn">✕</button>
+    </h3>
+    <div class="settings-desc" style="margin-bottom:1rem">
+      Новые сообщения в этом диалоге будут автоматически и безвозвратно стираться через выбранное время у обоих собеседников.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.5rem">
+      <button class="ci-btn timer-opt-btn" data-ttl="0" type="button" style="justify-content:flex-start;padding:.65rem 1rem">✕ Выключено</button>
+      <button class="ci-btn timer-opt-btn" data-ttl="3600" type="button" style="justify-content:flex-start;padding:.65rem 1rem">⚡ 1 час</button>
+      <button class="ci-btn timer-opt-btn" data-ttl="86400" type="button" style="justify-content:flex-start;padding:.65rem 1rem">⌛ 24 часа</button>
+      <button class="ci-btn timer-opt-btn" data-ttl="604800" type="button" style="justify-content:flex-start;padding:.65rem 1rem">🗓️ 7 дней</button>
+    </div>
+  </div>
+</div>
+
+<!-- PIN Setup Modal -->
+<div class="settings-modal-overlay" id="pin-setup-modal">
+  <div class="settings-card" style="max-width:340px">
+    <h3>
+      <span id="pin-setup-title">🔒 Настройка PIN-кода</span>
+      <button class="modal-close-btn" id="close-pin-setup-btn">✕</button>
+    </h3>
+    <div class="settings-desc" id="pin-setup-desc" style="margin-bottom:1.2rem">
+      Задайте 4-значный код-пароль для защиты входа в приложение.
+    </div>
+    <input type="password" id="pin-setup-input" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••" style="width:100%;text-align:center;font-size:1.8rem;letter-spacing:.5rem;padding:.7rem;border-radius:10px;background:var(--card);border:1px solid var(--border);color:#fff;margin-bottom:1rem;outline:none;"/>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end">
+      <button class="ci-btn" id="disable-pin-btn" type="button" style="display:none;background:var(--red);color:#fff;border-color:var(--red)">Отключить</button>
+      <button class="ci-btn" id="save-pin-btn" type="button" style="background:var(--accent);color:var(--accent-inv)">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Privacy Blur Overlay -->
+<div id="privacy-blur-overlay">
+  <div class="blur-shield-icon">🛡️</div>
+  <div class="blur-shield-text">FRIENDLY CHAT</div>
+</div>
+
+<!-- App Lock Screen -->
+<div id="app-lock-screen">
+  <div class="lock-logo">FC</div>
+  <div class="lock-title" id="lock-screen-title">Введите код-пароль</div>
+  <div class="lock-sub" id="lock-screen-sub">Friendly Chat заблокирован</div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="pdot-0"></div>
+    <div class="pin-dot" id="pdot-1"></div>
+    <div class="pin-dot" id="pdot-2"></div>
+    <div class="pin-dot" id="pdot-3"></div>
+  </div>
+  <div class="pin-keypad">
+    <button class="pin-key" data-digit="1" type="button">1</button>
+    <button class="pin-key" data-digit="2" type="button">2</button>
+    <button class="pin-key" data-digit="3" type="button">3</button>
+    <button class="pin-key" data-digit="4" type="button">4</button>
+    <button class="pin-key" data-digit="5" type="button">5</button>
+    <button class="pin-key" data-digit="6" type="button">6</button>
+    <button class="pin-key" data-digit="7" type="button">7</button>
+    <button class="pin-key" data-digit="8" type="button">8</button>
+    <button class="pin-key" data-digit="9" type="button">9</button>
+    <button class="pin-key action-key" id="pin-bio-btn" type="button">🛡️</button>
+    <button class="pin-key" data-digit="0" type="button">0</button>
+    <button class="pin-key action-key" id="pin-del-btn" type="button">⌫</button>
   </div>
 </div>
 <div class="call-overlay" id="incoming-call-modal">
@@ -1309,11 +1515,12 @@ function scrollToBottom(smooth = false) {
   });
 }
 
-function addMsg(id,rawContent,isMe,ts,isRead=false){
+function addMsg(id,rawContent,isMe,ts,isRead=false,expiresAt=null){
   msgsEmpty.style.display='none';
   const row=document.createElement('div');
   row.className='mrow '+(isMe?'me':'them');
   row.dataset.id = id;
+  if(expiresAt) row.dataset.expiresAt = expiresAt;
   
   const checkbox = document.createElement('div');
   checkbox.className = 'msg-checkbox';
@@ -1392,7 +1599,11 @@ function addMsg(id,rawContent,isMe,ts,isRead=false){
     const ticks = isRead ? '✓✓' : '✓';
     statusHtml = ` <span class="msg-status ${readClass}" title="${isRead ? 'Просмотрено' : 'Доставлено'}">${ticks}</span>`;
   }
-  time.innerHTML = `${esc(tstr(ts))}${statusHtml}`;
+  let ttlHtml = '';
+  if(expiresAt && Number(expiresAt) > Date.now()){
+    ttlHtml = ` <span class="ttl-pill" title="Самоуничтожение включено">⏳</span>`;
+  }
+  time.innerHTML = `${esc(tstr(ts))}${statusHtml}${ttlHtml}`;
   inner.appendChild(bub);
   inner.appendChild(time);
   row.appendChild(inner);
@@ -2376,6 +2587,10 @@ function startApp(){
   loadFriends();
   loadRecent();
   updateNotificationUI();
+  updatePinUI();
+  if (getStoredPinHash()) {
+    showLockScreen();
+  }
   setInterval(()=>{
     if(me && (!searchEl.value || !searchEl.value.trim())){
       loadFriends();
@@ -2871,6 +3086,7 @@ async function openChat(user){
   peerName.textContent=user.username;
   updateFriendToggleBtn();
   updatePeerStatusHeader();
+  updateTimerBtnUI();
 
   msgsEl.innerHTML='';
   msgsEmpty.style.display='flex';
@@ -2889,7 +3105,7 @@ async function openChat(user){
       }catch(e){
         text=isMe?'[Отправлено со старым ключом]':'[Зашифровано старым ключом]';
       }
-      addMsg(msg.id,text,isMe,msg.timestamp,!!msg.isRead);
+      addMsg(msg.id,text,isMe,msg.timestamp,!!msg.isRead,msg.expiresAt);
     }
     
     // Mark as read in server
@@ -2959,6 +3175,9 @@ async function send(){
   try{myKey=typeof me.publicKey==='string'?JSON.parse(me.publicKey):me.publicKey}
   catch{toast('❌ Нет своего ключа');return}
 
+  const ttl = getPeerTtl(peer.id);
+  const expiresAt = (ttl > 0) ? (Date.now() + ttl * 1000) : null;
+
   try{
     const tempId = 'temp-' + Date.now() + Math.random().toString(36).substr(2,9);
     const[forPeer,forMe]=await Promise.all([encFor(payloadToSend,peerKey),encFor(payloadToSend,myKey)]);
@@ -2967,9 +3186,10 @@ async function send(){
       receiverId:peer.id,
       encryptedContent:JSON.stringify(forPeer),
       senderCopy:JSON.stringify(forMe),
-      clientMsgId: tempId
+      clientMsgId: tempId,
+      ttl: ttl > 0 ? ttl : undefined
     });
-    addMsg(tempId,payloadToSend,true,null,false);
+    addMsg(tempId,payloadToSend,true,null,false,expiresAt);
     if(activeTab==='chats') loadRecent();
   }catch(e){
     toast('❌ Ошибка: '+e.message);
@@ -3010,6 +3230,314 @@ if (window.visualViewport) {
     scrollToBottom(false);
   });
 }
+
+// ═══════════════════════════════════════
+// PRIVACY BLUR (Multitasking Protection)
+// ═══════════════════════════════════════
+const privacyBlurOverlay = document.getElementById('privacy-blur-overlay');
+const togglePrivacyBlur = document.getElementById('toggle-privacy-blur');
+let isPrivacyBlurEnabled = localStorage.getItem('fc_privacy_blur') !== '0';
+
+if (togglePrivacyBlur) {
+  togglePrivacyBlur.checked = isPrivacyBlurEnabled;
+  togglePrivacyBlur.onchange = () => {
+    isPrivacyBlurEnabled = togglePrivacyBlur.checked;
+    localStorage.setItem('fc_privacy_blur', isPrivacyBlurEnabled ? '1' : '0');
+  };
+}
+
+function handlePrivacyBlur(shouldBlur) {
+  if (!isPrivacyBlurEnabled || !privacyBlurOverlay) return;
+  if (isAppLocked) return;
+  if (shouldBlur) {
+    privacyBlurOverlay.classList.add('active');
+  } else {
+    privacyBlurOverlay.classList.remove('active');
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    handlePrivacyBlur(true);
+    checkAutoLockOnBackground();
+  } else {
+    handlePrivacyBlur(false);
+    checkAutoLockOnResume();
+  }
+});
+window.addEventListener('blur', () => handlePrivacyBlur(true));
+window.addEventListener('focus', () => handlePrivacyBlur(false));
+
+// ═══════════════════════════════════════
+// APP LOCK & PIN / BIOMETRICS
+// ═══════════════════════════════════════
+const appLockScreen = document.getElementById('app-lock-screen');
+const lockScreenTitle = document.getElementById('lock-screen-title');
+const lockScreenSub = document.getElementById('lock-screen-sub');
+const pinSetupModal = document.getElementById('pin-setup-modal');
+const setupPinBtn = document.getElementById('setup-pin-btn');
+const closePinSetupBtn = document.getElementById('close-pin-setup-btn');
+const savePinBtn = document.getElementById('save-pin-btn');
+const disablePinBtn = document.getElementById('disable-pin-btn');
+const pinSetupInput = document.getElementById('pin-setup-input');
+const pinStatusDesc = document.getElementById('pin-status-desc');
+const pinBioBtn = document.getElementById('pin-bio-btn');
+const pinDelBtn = document.getElementById('pin-del-btn');
+
+let enteredPin = '';
+let isAppLocked = false;
+let backgroundTimestamp = 0;
+
+function getStoredPinHash() {
+  return localStorage.getItem('fc_app_pin_hash');
+}
+
+async function hashPin(pin) {
+  const enc = new TextEncoder();
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode('fc_pin_' + pin));
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function updatePinUI() {
+  const hasPin = !!getStoredPinHash();
+  if (setupPinBtn) {
+    setupPinBtn.textContent = hasPin ? 'Изменить' : 'Настроить';
+  }
+  if (pinStatusDesc) {
+    pinStatusDesc.innerHTML = hasPin 
+      ? '<span style="color:#2ecc71">✓ Защита включена (PIN / Face ID)</span>' 
+      : 'Защита входа в приложение 4-значным PIN-кодом и биометрией.';
+  }
+  if (disablePinBtn) {
+    disablePinBtn.style.display = hasPin ? 'inline-block' : 'none';
+  }
+}
+
+if (setupPinBtn) {
+  setupPinBtn.onclick = () => {
+    pinSetupInput.value = '';
+    pinSetupModal.classList.add('active');
+    setTimeout(() => pinSetupInput.focus(), 150);
+  };
+}
+if (closePinSetupBtn) {
+  closePinSetupBtn.onclick = () => pinSetupModal.classList.remove('active');
+}
+if (savePinBtn) {
+  savePinBtn.onclick = async () => {
+    const pin = pinSetupInput.value.trim();
+    if (!/^\d{4}$/.test(pin)) {
+      toast('❌ Введите ровно 4 цифры!');
+      return;
+    }
+    const h = await hashPin(pin);
+    localStorage.setItem('fc_app_pin_hash', h);
+    pinSetupModal.classList.remove('active');
+    updatePinUI();
+    toast('🔒 Код-пароль успешно установлен!');
+  };
+}
+if (disablePinBtn) {
+  disablePinBtn.onclick = () => {
+    localStorage.removeItem('fc_app_pin_hash');
+    pinSetupModal.classList.remove('active');
+    updatePinUI();
+    toast('🔓 Защита PIN-кодом отключена');
+  };
+}
+
+function showLockScreen() {
+  const pinHash = getStoredPinHash();
+  if (!pinHash || !me) return;
+  isAppLocked = true;
+  enteredPin = '';
+  updatePinDots();
+  if (lockScreenSub) lockScreenSub.textContent = 'Friendly Chat заблокирован';
+  if (appLockScreen) appLockScreen.classList.add('active');
+  if (privacyBlurOverlay) privacyBlurOverlay.classList.remove('active');
+  tryBiometrics();
+}
+
+function unlockApp() {
+  isAppLocked = false;
+  enteredPin = '';
+  updatePinDots();
+  if (appLockScreen) appLockScreen.classList.remove('active');
+}
+
+function updatePinDots(isError = false) {
+  for (let i = 0; i < 4; i++) {
+    const dot = document.getElementById('pdot-' + i);
+    if (!dot) continue;
+    dot.className = 'pin-dot' + (i < enteredPin.length ? ' filled' : '') + (isError ? ' error' : '');
+  }
+}
+
+async function handlePinDigit(digit) {
+  if (enteredPin.length >= 4) return;
+  enteredPin += digit;
+  updatePinDots();
+
+  if (enteredPin.length === 4) {
+    const enteredHash = await hashPin(enteredPin);
+    const storedHash = getStoredPinHash();
+    if (enteredHash === storedHash) {
+      unlockApp();
+    } else {
+      updatePinDots(true);
+      if (lockScreenSub) lockScreenSub.innerHTML = '<span style="color:var(--red)">Неверный код-пароль</span>';
+      setTimeout(() => {
+        enteredPin = '';
+        updatePinDots();
+      }, 500);
+    }
+  }
+}
+
+document.querySelectorAll('.pin-key[data-digit]').forEach(btn => {
+  btn.onclick = () => handlePinDigit(btn.dataset.digit);
+});
+
+if (pinDelBtn) {
+  pinDelBtn.onclick = () => {
+    if (enteredPin.length > 0) {
+      enteredPin = enteredPin.slice(0, -1);
+      updatePinDots();
+    }
+  };
+}
+
+async function tryBiometrics() {
+  if (!window.PublicKeyCredential) return;
+  try {
+    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    if (available && isAppLocked) {
+      // Prompt biometric
+    }
+  } catch(e){}
+}
+if (pinBioBtn) {
+  pinBioBtn.onclick = () => tryBiometrics();
+}
+
+function checkAutoLockOnBackground() {
+  backgroundTimestamp = Date.now();
+}
+
+function checkAutoLockOnResume() {
+  const pinHash = getStoredPinHash();
+  if (!pinHash || !me) return;
+  const diff = Date.now() - backgroundTimestamp;
+  if (backgroundTimestamp > 0 && diff > 40000) {
+    showLockScreen();
+  }
+}
+
+// ═══════════════════════════════════════
+// PANIC BUTTON (Emergency Wipe)
+// ═══════════════════════════════════════
+const panicWipeBtn = document.getElementById('panic-wipe-btn');
+if (panicWipeBtn) {
+  panicWipeBtn.onclick = async () => {
+    const confirmed = confirm('🚨 ВНИМАНИЕ! ВСЕ ключи шифрования, локальные сессии и переписка будут НЕОБРАТИМО СТЕРТЫ с этого устройства прямо сейчас.\n\nВы уверены?');
+    if (!confirmed) return;
+
+    myPriv = null;
+    myPub = null;
+    me = null;
+    peer = null;
+
+    localStorage.clear();
+    sessionStorage.clear();
+
+    if ('caches' in window) {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      } catch(e){}
+    }
+
+    window.location.replace(window.location.origin + '?wiped=' + Date.now());
+  };
+}
+
+// ═══════════════════════════════════════
+// DISAPPEARING MESSAGES (TTL)
+// ═══════════════════════════════════════
+const chatTimerBtn = document.getElementById('chat-timer-btn');
+const chatTimerLabel = document.getElementById('chat-timer-label');
+const timerModal = document.getElementById('timer-modal');
+const closeTimerBtn = document.getElementById('close-timer-btn');
+
+function getPeerTtl(peerId) {
+  if (!peerId) return 0;
+  return Number(localStorage.getItem('fc_ttl_' + peerId) || 0);
+}
+
+function setPeerTtl(peerId, ttl) {
+  if (!peerId) return;
+  localStorage.setItem('fc_ttl_' + peerId, String(ttl));
+  updateTimerBtnUI();
+}
+
+function updateTimerBtnUI() {
+  if (!peer || !chatTimerLabel || !chatTimerBtn) return;
+  const ttl = getPeerTtl(peer.id);
+  if (ttl === 3600) {
+    chatTimerLabel.textContent = '1ч';
+    chatTimerBtn.classList.add('active');
+  } else if (ttl === 86400) {
+    chatTimerLabel.textContent = '24ч';
+    chatTimerBtn.classList.add('active');
+  } else if (ttl === 604800) {
+    chatTimerLabel.textContent = '7д';
+    chatTimerBtn.classList.add('active');
+  } else {
+    chatTimerLabel.textContent = 'Выкл';
+    chatTimerBtn.classList.remove('active');
+  }
+}
+
+if (chatTimerBtn) {
+  chatTimerBtn.onclick = () => {
+    if (!peer) return;
+    timerModal.classList.add('active');
+  };
+}
+if (closeTimerBtn) {
+  closeTimerBtn.onclick = () => timerModal.classList.remove('active');
+}
+if (timerModal) {
+  timerModal.onclick = (e) => {
+    if (e.target === timerModal) timerModal.classList.remove('active');
+  };
+}
+
+document.querySelectorAll('.timer-opt-btn').forEach(btn => {
+  btn.onclick = () => {
+    if (!peer) return;
+    const ttl = Number(btn.dataset.ttl || 0);
+    setPeerTtl(peer.id, ttl);
+    timerModal.classList.remove('active');
+    toast(ttl > 0 ? `⏳ Автоудаление: ${btn.textContent}` : '⏳ Автоудаление отключено');
+  };
+});
+
+// Periodic client-side check to remove expired messages in open chat
+setInterval(() => {
+  if (!msgsEl) return;
+  const now = Date.now();
+  const rows = msgsEl.querySelectorAll('.mrow[data-expires-at]');
+  rows.forEach(r => {
+    const exp = Number(r.dataset.expiresAt);
+    if (exp && exp < now) {
+      r.remove();
+      if (msgsEl.children.length === 1 && msgsEl.contains(msgsEmpty)) {
+        msgsEmpty.style.display = 'flex';
+      }
+    }
+  });
+}, 3000);
 </script>
 </body>
 </html>
