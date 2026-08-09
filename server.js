@@ -122,6 +122,14 @@ async function dbRun(sql, args = []) {
 
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', time: Date.now() });
+});
+
+app.get('/api/ping', (req, res) => {
+  res.status(200).send('pong');
+});
+
 app.post('/api/log', (req, res) => {
   console.log('CLIENT LOG:', req.body);
   res.json({ok:true});
@@ -133,16 +141,59 @@ app.get('/api/vapidPublicKey', (req, res) => {
 
 app.post('/api/subscribe', async (req, res) => {
   const { userId, subscription } = req.body;
-  if (!userId || !subscription) return res.status(400).json({ error: 'Bad Request' });
+  if (!userId || !subscription || !subscription.endpoint || !subscription.keys) {
+    return res.status(400).json({ error: 'Bad Request' });
+  }
 
   try {
     await dbRun(
-      'INSERT OR IGNORE INTO push_subscriptions (userId, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO push_subscriptions (userId, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
       [userId, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth]
     );
     res.status(201).json({ ok: true });
   } catch (e) {
     console.error('Subscribe err:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/test-push', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+
+  try {
+    if (!publicVapidKey || !privateVapidKey) {
+      return res.status(500).json({ error: 'VAPID keys not configured on server' });
+    }
+    const subs = await dbAll('SELECT * FROM push_subscriptions WHERE userId = ?', [userId]);
+    if (!subs || subs.length === 0) {
+      return res.status(404).json({ error: 'У вас нет активных push-подписок на этом устройстве' });
+    }
+
+    const payload = JSON.stringify({
+      title: '🔒 SecureChat',
+      body: 'Тестовое уведомление: Push-уведомления успешно работают!',
+      icon: '/icon.png'
+    });
+
+    let sentCount = 0;
+    for (const sub of subs) {
+      const pushConfig = {
+        endpoint: sub.endpoint,
+        keys: { p256dh: sub.p256dh, auth: sub.auth }
+      };
+      try {
+        await webpush.sendNotification(pushConfig, payload);
+        sentCount++;
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await dbRun('DELETE FROM push_subscriptions WHERE id = ?', [sub.id]);
+        }
+      }
+    }
+    res.json({ success: true, sentCount });
+  } catch (e) {
+    console.error('Test push error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -722,5 +773,23 @@ initDb().then(() => {
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 Chat server running on http://0.0.0.0:${PORT}\n`);
+    
+    // Keep-alive self-ping (every 8 minutes) to prevent Render free-tier sleeping
+    const targetUrl = process.env.RENDER_EXTERNAL_URL || 'https://friedlychat.onrender.com';
+    const https = require('https');
+    const httpModule = require('http');
+    
+    setInterval(() => {
+      try {
+        const client = targetUrl.startsWith('https') ? https : httpModule;
+        client.get(`${targetUrl}/api/health`, (res) => {
+          console.log(`[Keep-Alive] Pinged ${targetUrl}/api/health -> status ${res.statusCode}`);
+        }).on('error', (err) => {
+          console.log('[Keep-Alive] Ping error:', err.message);
+        });
+      } catch(e) {
+        console.error('[Keep-Alive] Error:', e);
+      }
+    }, 8 * 60 * 1000);
   });
 }).catch(console.error);
