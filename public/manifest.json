@@ -1,6 +1,6 @@
 {
-  "name": "SecureChat",
-  "short_name": "SecureChat",
+  "name": "Friendly Chat",
+  "short_name": "Friendly Chat",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

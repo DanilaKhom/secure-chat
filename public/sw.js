@@ -22,7 +22,7 @@ self.addEventListener('push', function(event) {
         }
       };
       event.waitUntil(
-        self.registration.showNotification(data.title || 'SecureChat', options)
+        self.registration.showNotification(data.title || 'Friendly Chat', options)
       );
     } catch (e) {
       console.error('Error parsing push data', e);

@@ -171,7 +171,7 @@ app.post('/api/test-push', async (req, res) => {
     }
 
     const payload = JSON.stringify({
-      title: '🔒 SecureChat',
+      title: '🔒 Friendly Chat',
       body: 'Тестовое уведомление: Push-уведомления успешно работают!',
       icon: '/icon.png'
     });
