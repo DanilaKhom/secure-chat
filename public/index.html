@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"/>
 <title>Friendly Chat</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#000000">
@@ -53,11 +53,16 @@
 }
 html,body{
   height:100%;
+  height:100dvh;
+  margin:0;padding:0;
   font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
   background:var(--bg);
   color:var(--text);
   overflow:hidden;
   -webkit-font-smoothing:antialiased;
+  position:fixed;
+  width:100%;
+  inset:0;
 }
 
 /* ──── LOGIN ──── */
@@ -94,8 +99,8 @@ html,body{
 #login-err{color:var(--red);font-size:.8rem;margin-top:.8rem;text-align:center;min-height:1.2rem}
 
 /* ──── APP SHELL ──── */
-#app{display:none;height:100dvh;flex-direction:row}
-.layout{display:flex;height:100%;width:100%}
+#app{display:none;height:100%;height:100dvh;flex-direction:row;width:100%;position:relative;overflow:hidden}
+.layout{display:flex;height:100%;width:100%;overflow:hidden}
 
 /* ──── SIDEBAR ──── */
 .sidebar{
@@ -337,6 +342,7 @@ input:checked + .slider:before{transform:translateX(20px)}
   flex:1;overflow-y:auto;padding:1.2rem;
   display:flex;flex-direction:column;gap:.6rem;
   overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  min-height:0;
 }
 .welcome{
   flex:1;display:flex;flex-direction:column;
@@ -1279,6 +1285,16 @@ selectionDeleteBtn.onclick = () => {
   }
 };
 
+function scrollToBottom(smooth = false) {
+  if (!msgsEl) return;
+  requestAnimationFrame(() => {
+    msgsEl.scrollTo({
+      top: msgsEl.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  });
+}
+
 function addMsg(id,rawContent,isMe,ts,isRead=false){
   msgsEmpty.style.display='none';
   const row=document.createElement('div');
@@ -1371,7 +1387,7 @@ function addMsg(id,rawContent,isMe,ts,isRead=false){
   inner.appendChild(time);
   row.appendChild(inner);
   msgsEl.appendChild(row);
-  msgsEl.scrollTop=msgsEl.scrollHeight;
+  scrollToBottom(false);
 }
 
 // ═══════════════════════════════════════
@@ -2859,6 +2875,8 @@ async function openChat(user){
   delete pending[String(user.id)];
 
   if(activeTab==='chats') loadRecent();
+  scrollToBottom(false);
+  setTimeout(() => scrollToBottom(false), 80);
   msgInput.focus();
 }
 
@@ -2937,6 +2955,16 @@ msgInput.onkeydown = (e) => {
     msgInput.focus();
   }
 };
+msgInput.onfocus = () => {
+  setTimeout(() => scrollToBottom(true), 150);
+  setTimeout(() => scrollToBottom(true), 350);
+};
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    scrollToBottom(false);
+  });
+}
 </script>
 </body>
 </html>
