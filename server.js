@@ -390,12 +390,12 @@ app.get('/api/friends/requests/:userId', async (req, res) => {
 app.get('/api/users/search', async (req, res) => {
   const { query } = req.query;
   try {
-    const allUsers = await dbAll('SELECT id, username, publicKey FROM users');
+    const allUsers = await dbAll('SELECT id, username, publicKey FROM users ORDER BY LOWER(username) ASC');
     if (!query || !query.trim()) {
-      return res.json(allUsers.slice(0, 20));
+      return res.json(allUsers.slice(0, 100));
     }
     const cleanQ = query.trim().toLowerCase();
-    const matched = allUsers.filter(u => u.username && u.username.toLowerCase().includes(cleanQ)).slice(0, 20);
+    const matched = allUsers.filter(u => u.username && u.username.toLowerCase().includes(cleanQ)).slice(0, 100);
     res.json(matched);
   } catch (e) {
     res.status(500).json({ error: e.message });

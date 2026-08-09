@@ -141,6 +141,12 @@ html,body{
 
 .sb-list{flex:1;overflow-y:auto;padding:.5rem}
 .sec-label{font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;padding:.4rem .6rem}
+.alpha-header{
+  font-size:.72rem;font-weight:700;color:var(--accent);
+  padding:.5rem .65rem .25rem;letter-spacing:.06em;
+  opacity:0.85;text-transform:uppercase;
+  border-bottom:1px solid rgba(255,255,255,0.06);margin-top:.4rem;margin-bottom:.2rem;
+}
 
 /* List Items */
 .ci{
@@ -2641,7 +2647,25 @@ function renderSearchResults(users, totalOnServer){
     }
     return;
   }
-  users.forEach(u=>{
+
+  // Sort alphabetically case-insensitively
+  const sorted = [...users].sort((a, b) => {
+    return (a.username || '').localeCompare(b.username || '', 'ru', { sensitivity: 'base' });
+  });
+
+  let currentLetter = null;
+
+  sorted.forEach(u=>{
+    const firstLetter = (u.username && u.username[0]) ? u.username[0].toUpperCase() : '#';
+    
+    if (firstLetter !== currentLetter) {
+      currentLetter = firstLetter;
+      const alphaHeader = document.createElement('div');
+      alphaHeader.className = 'alpha-header';
+      alphaHeader.textContent = currentLetter;
+      chatListEl.appendChild(alphaHeader);
+    }
+
     const isF=isFriend(u.id);
     const st = userStatuses[u.id];
     const isOnline = st && st.isOnline && !st.hidden;
@@ -2713,7 +2737,12 @@ function renderFriendsList(){
     chatListEl.appendChild(h);
     return;
   }
-  myFriends.forEach(u=>{
+
+  const sortedFriends = [...myFriends].sort((a, b) => {
+    return (a.username || '').localeCompare(b.username || '', 'ru', { sensitivity: 'base' });
+  });
+
+  sortedFriends.forEach(u=>{
     const hasPend=pending[String(u.id)]?.length>0;
     const st = userStatuses[u.id];
     const isOnline = st && st.isOnline && !st.hidden;
