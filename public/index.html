@@ -656,7 +656,7 @@ input:checked + .slider:before{transform:translateX(20px)}
           </div>
           <div class="input-row">
             <button class="attach-btn" id="attach-btn" type="button" title="Прикрепить фото">📷</button>
-            <input id="msg-input" type="text" placeholder="Написать..." autocomplete="off" enterkeyhint="send"/>
+            <input id="msg-input" type="text" placeholder="Написать..." autocomplete="off" autocapitalize="sentences" autocorrect="on" spellcheck="true" enterkeyhint="send"/>
             <button class="send-btn" id="send-btn">↑</button>
           </div>
         </div>
@@ -2899,9 +2899,18 @@ backBtn.onclick=()=>{
   if(activeTab==='chats') loadRecent(); else renderFriendsList();
 };
 
+function capitalizeFirst(text) {
+  if (!text) return '';
+  const trimmed = text.trimStart();
+  if (!trimmed) return text;
+  const leading = text.slice(0, text.length - trimmed.length);
+  return leading + trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
 // SEND MESSAGE
 async function send(){
-  const text=msgInput.value.trim();
+  const rawText=msgInput.value.trim();
+  const text=capitalizeFirst(rawText);
   if(!text && !selectedImageData) return;
   if(!peer || !socket) return;
 
@@ -2969,6 +2978,13 @@ msgInput.onfocus = () => {
   setTimeout(() => scrollToBottom(true), 150);
   setTimeout(() => scrollToBottom(true), 350);
 };
+
+msgInput.addEventListener('input', () => {
+  const val = msgInput.value;
+  if (val.length === 1 && val !== val.toUpperCase()) {
+    msgInput.value = val.toUpperCase();
+  }
+});
 
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => {
