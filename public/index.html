@@ -3432,12 +3432,12 @@ function showLockScreen() {
   isAppLocked = true;
   enteredPin = '';
   updatePinDots();
-  if (lockScreenSub) lockScreenSub.textContent = bioEnabled ? 'Используйте Face ID или PIN' : 'Friendly Chat заблокирован';
+  if (lockScreenSub) lockScreenSub.textContent = bioEnabled ? 'Нажмите в любом месте для Face ID' : 'Friendly Chat заблокирован';
   if (appLockScreen) appLockScreen.classList.add('active');
   if (privacyBlurOverlay) privacyBlurOverlay.classList.remove('active');
   
   if (bioEnabled) {
-    setTimeout(() => tryBiometrics(), 300);
+    setTimeout(() => tryBiometrics(), 100);
   }
 }
 
