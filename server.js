@@ -17,12 +17,14 @@ const io = new Server(server, {
 });
 
 // VAPID keys setup
-const publicVapidKey = process.env.VAPID_PUBLIC_KEY;
-const privateVapidKey = process.env.VAPID_PRIVATE_KEY;
+const publicVapidKey = process.env.VAPID_PUBLIC_KEY || 'BETTxLcOje91anZhfmDcsz8Y99C8TTk8XurPYfcGBXGBbcKjFdB-ETiMlMQsjT6JDf2GtWSTGup1cUp6tnmn6vE';
+const privateVapidKey = process.env.VAPID_PRIVATE_KEY || 'uDg-89Noc05usiKzNuElFDlJsCiOjh227PM76LXwFEU';
 if (publicVapidKey && privateVapidKey) {
-  webpush.setVapidDetails('mailto:test@test.com', publicVapidKey, privateVapidKey);
-} else {
-  console.warn('WARNING: VAPID keys not set. Push notifications will not work.');
+  try {
+    webpush.setVapidDetails('mailto:friendlychat@app.com', publicVapidKey, privateVapidKey);
+  } catch (e) {
+    console.error('VAPID setup error:', e);
+  }
 }
 
 app.use(express.json());

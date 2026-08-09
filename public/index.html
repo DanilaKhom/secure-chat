@@ -966,6 +966,9 @@ async function testPushNotification() {
     testBtn.textContent = 'Отправка...';
   }
   try {
+    // Make sure push subscription is registered on the server first
+    await requestNotifyPermission(false);
+
     const res = await fetch('/api/test-push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
