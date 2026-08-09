@@ -874,16 +874,22 @@ input:checked + .slider:before{transform:translateX(20px)}
 <div class="settings-modal-overlay" id="pin-setup-modal">
   <div class="settings-card" style="max-width:340px">
     <h3>
-      <span id="pin-setup-title">🔒 Настройка PIN-кода</span>
+      <span id="pin-setup-title">🔒 Код-пароль и Face ID</span>
       <button class="modal-close-btn" id="close-pin-setup-btn">✕</button>
     </h3>
     <div class="settings-desc" id="pin-setup-desc" style="margin-bottom:1.2rem">
-      Задайте 4-значный код-пароль для защиты входа в приложение.
+      Задайте 4-значный цифровой PIN для защиты входа.
     </div>
     <input type="password" id="pin-setup-input" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••" style="width:100%;text-align:center;font-size:1.8rem;letter-spacing:.5rem;padding:.7rem;border-radius:10px;background:var(--card);border:1px solid var(--border);color:#fff;margin-bottom:1rem;outline:none;"/>
-    <div style="display:flex;gap:.5rem;justify-content:flex-end">
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-bottom:.8rem">
       <button class="ci-btn" id="disable-pin-btn" type="button" style="display:none;background:var(--red);color:#fff;border-color:var(--red)">Отключить</button>
-      <button class="ci-btn" id="save-pin-btn" type="button" style="background:var(--accent);color:var(--accent-inv)">Сохранить</button>
+      <button class="ci-btn" id="save-pin-btn" type="button" style="background:var(--accent);color:var(--accent-inv)">Сохранить PIN</button>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:.8rem;display:flex;flex-direction:column;gap:.4rem">
+      <button class="ci-btn" id="enable-bio-btn" type="button" style="width:100%;justify-content:center;padding:.65rem;gap:.5rem">
+        <span>🛡️</span>
+        <span id="bio-btn-text">Подключить Face ID / Touch ID</span>
+      </button>
     </div>
   </div>
 </div>
@@ -3298,24 +3304,42 @@ async function hashPin(pin) {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+const enableBioBtn = document.getElementById('enable-bio-btn');
+const bioBtnText = document.getElementById('bio-btn-text');
+
 function updatePinUI() {
   const hasPin = !!getStoredPinHash();
+  const hasBio = localStorage.getItem('fc_bio_enabled') === '1';
+
   if (setupPinBtn) {
-    setupPinBtn.textContent = hasPin ? 'Изменить' : 'Настроить';
+    setupPinBtn.textContent = hasPin || hasBio ? 'Настроено ✓' : 'Настроить';
   }
   if (pinStatusDesc) {
-    pinStatusDesc.innerHTML = hasPin 
-      ? '<span style="color:#2ecc71">✓ Защита включена (PIN / Face ID)</span>' 
-      : 'Защита входа в приложение 4-значным PIN-кодом и биометрией.';
+    if (hasPin && hasBio) {
+      pinStatusDesc.innerHTML = '<span style="color:#2ecc71">✓ Защита включена (PIN + Face ID)</span>';
+    } else if (hasPin) {
+      pinStatusDesc.innerHTML = '<span style="color:#2ecc71">✓ Защита PIN-кодом активна</span>';
+    } else if (hasBio) {
+      pinStatusDesc.innerHTML = '<span style="color:#2ecc71">✓ Вход по Face ID активен</span>';
+    } else {
+      pinStatusDesc.textContent = 'Защита входа в приложение 4-значным PIN-кодом и Face ID.';
+    }
   }
   if (disablePinBtn) {
-    disablePinBtn.style.display = hasPin ? 'inline-block' : 'none';
+    disablePinBtn.style.display = (hasPin || hasBio) ? 'inline-block' : 'none';
+  }
+  if (bioBtnText) {
+    bioBtnText.textContent = hasBio ? 'Face ID подключен ✓' : 'Подключить Face ID / Touch ID';
+  }
+  if (enableBioBtn && hasBio) {
+    enableBioBtn.style.opacity = '0.7';
   }
 }
 
 if (setupPinBtn) {
   setupPinBtn.onclick = () => {
     pinSetupInput.value = '';
+    updatePinUI();
     pinSetupModal.classList.add('active');
     setTimeout(() => pinSetupInput.focus(), 150);
   };
@@ -3340,22 +3364,81 @@ if (savePinBtn) {
 if (disablePinBtn) {
   disablePinBtn.onclick = () => {
     localStorage.removeItem('fc_app_pin_hash');
+    localStorage.removeItem('fc_bio_enabled');
+    localStorage.removeItem('fc_bio_cred_id');
     pinSetupModal.classList.remove('active');
     updatePinUI();
-    toast('🔓 Защита PIN-кодом отключена');
+    toast('🔓 Защита отключена');
   };
+}
+if (enableBioBtn) {
+  enableBioBtn.onclick = () => registerFaceId();
+}
+
+async function registerFaceId() {
+  if (!window.PublicKeyCredential) {
+    toast('❌ Биометрия не поддерживается в этом браузере');
+    return;
+  }
+  try {
+    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    if (!available) {
+      toast('❌ Face ID / Touch ID недоступен на этом устройстве');
+      return;
+    }
+
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userId = crypto.getRandomValues(new Uint8Array(16));
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'Friendly Chat' },
+        user: {
+          id: userId,
+          name: (me && me.username) || 'User',
+          displayName: (me && me.username) || 'User'
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },
+          { alg: -257, type: 'public-key' }
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          userVerification: 'required'
+        },
+        timeout: 60000
+      }
+    });
+
+    if (credential) {
+      localStorage.setItem('fc_bio_enabled', '1');
+      localStorage.setItem('fc_bio_cred_id', buf2b64(credential.rawId));
+      updatePinUI();
+      toast('✅ Face ID успешно подключен!');
+    }
+  } catch (err) {
+    console.error('Face ID register error:', err);
+    toast('❌ ' + (err.name === 'NotAllowedError' ? 'Сканирование отменено' : 'Ошибка Face ID'));
+  }
 }
 
 function showLockScreen() {
   const pinHash = getStoredPinHash();
-  if (!pinHash || !me) return;
+  const bioEnabled = localStorage.getItem('fc_bio_enabled') === '1';
+  if (!pinHash && !bioEnabled) return;
+  if (!me) return;
+
   isAppLocked = true;
   enteredPin = '';
   updatePinDots();
-  if (lockScreenSub) lockScreenSub.textContent = 'Friendly Chat заблокирован';
+  if (lockScreenSub) lockScreenSub.textContent = bioEnabled ? 'Используйте Face ID или PIN' : 'Friendly Chat заблокирован';
   if (appLockScreen) appLockScreen.classList.add('active');
   if (privacyBlurOverlay) privacyBlurOverlay.classList.remove('active');
-  tryBiometrics();
+  
+  if (bioEnabled) {
+    setTimeout(() => tryBiometrics(), 300);
+  }
 }
 
 function unlockApp() {
@@ -3409,12 +3492,39 @@ if (pinDelBtn) {
 
 async function tryBiometrics() {
   if (!window.PublicKeyCredential) return;
+  const isBioEnabled = localStorage.getItem('fc_bio_enabled') === '1';
+  if (!isBioEnabled) {
+    toast('💡 Face ID еще не подключен в Настройках');
+    return;
+  }
+
   try {
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    if (available && isAppLocked) {
-      // Prompt biometric
+    const credIdStr = localStorage.getItem('fc_bio_cred_id');
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+    const getOptions = {
+      publicKey: {
+        challenge,
+        userVerification: 'required',
+        timeout: 60000
+      }
+    };
+
+    if (credIdStr) {
+      getOptions.publicKey.allowCredentials = [{
+        id: b642buf(credIdStr),
+        type: 'public-key'
+      }];
     }
-  } catch(e){}
+
+    const assertion = await navigator.credentials.get(getOptions);
+    if (assertion) {
+      toast('🔓 Разблокировано по Face ID');
+      unlockApp();
+    }
+  } catch (err) {
+    console.log('Face ID cancelled or failed:', err);
+  }
 }
 if (pinBioBtn) {
   pinBioBtn.onclick = () => tryBiometrics();
@@ -3426,9 +3536,11 @@ function checkAutoLockOnBackground() {
 
 function checkAutoLockOnResume() {
   const pinHash = getStoredPinHash();
-  if (!pinHash || !me) return;
+  const bioEnabled = localStorage.getItem('fc_bio_enabled') === '1';
+  if (!pinHash && !bioEnabled) return;
+  if (!me) return;
   const diff = Date.now() - backgroundTimestamp;
-  if (backgroundTimestamp > 0 && diff > 40000) {
+  if (backgroundTimestamp > 0 && diff > 30000) {
     showLockScreen();
   }
 }
