@@ -208,6 +208,12 @@ app.post('/api/register', async (req, res) => {
   const cleanPass = String(password).trim();
   if (!cleanUser || !cleanPass) return res.status(400).json({ error: 'Никнейм и пароль не могут быть пустыми' });
 
+  // Profanity filter for clean usernames
+  const profanityPatterns = [/ху[йеёяи]/i, /пизд/i, /еб[аеёу]/i, /бля[дт]/i, /сук[аи]/i, /пидор/i, /пидарас/i, /гандон/i];
+  if (profanityPatterns.some(p => p.test(cleanUser))) {
+    return res.status(400).json({ error: 'Этот никнейм недопустим (содержит ненормативную лексику)' });
+  }
+
   const hash = cryptoModule.createHash('sha256').update(cleanPass).digest('hex');
 
   try {
