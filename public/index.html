@@ -63,7 +63,10 @@ html,body{
 /* ──── LOGIN ──── */
 #login{
   display:flex;align-items:center;justify-content:center;
-  height:100dvh;padding:1.5rem;background:var(--bg);
+  min-height:100dvh;padding:1.5rem;
+  padding-top:max(1.5rem, calc(1.5rem + env(safe-area-inset-top, 0px)));
+  padding-bottom:max(1.5rem, calc(1.5rem + env(safe-area-inset-bottom, 0px)));
+  background:var(--bg);
 }
 .card{
   background:var(--panel);border:1px solid var(--border);
@@ -100,7 +103,13 @@ html,body{
   background:var(--panel);border-right:1px solid var(--border);
   display:flex;flex-direction:column;height:100%;
 }
-.sb-header{padding:1rem;border-bottom:1px solid var(--border)}
+.sb-header{
+  padding:1rem;
+  padding-top:calc(1rem + env(safe-area-inset-top, 0px));
+  padding-left:max(1rem, env(safe-area-inset-left, 0px));
+  padding-right:max(1rem, env(safe-area-inset-right, 0px));
+  border-bottom:1px solid var(--border);
+}
 .me-row{display:flex;align-items:center;gap:.75rem;margin-bottom:1rem}
 .av{
   width:38px;height:38px;border-radius:50%;background:var(--accent);
@@ -180,6 +189,8 @@ html,body{
 
 .settings-modal-overlay{
   position:fixed;top:0;left:0;right:0;bottom:0;
+  padding-top:max(1rem, env(safe-area-inset-top, 0px));
+  padding-bottom:max(1rem, env(safe-area-inset-bottom, 0px));
   background:rgba(0,0,0,0.8);backdrop-filter:blur(8px);
   z-index:9999;display:none;align-items:center;justify-content:center;
 }
@@ -187,7 +198,7 @@ html,body{
 .settings-card{
   background:var(--card);border:1px solid var(--border);border-radius:14px;
   width:92%;max-width:420px;padding:1.4rem;box-shadow:0 20px 40px rgba(0,0,0,0.6);
-  color:var(--text);
+  color:var(--text);max-height:85vh;overflow-y:auto;
 }
 .settings-card h3{margin:0 0 1rem;font-size:1.1rem;font-weight:600;display:flex;align-items:center;justify-content:space-between}
 .settings-row{
@@ -237,8 +248,12 @@ input:checked + .slider:before{transform:translateX(20px)}
 /* ──── CHAT AREA ──── */
 .chat{flex:1;display:flex;flex-direction:column;min-width:0;height:100%;position:relative;background:var(--bg)}
 .chat-hdr{
-  height:56px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 1rem;gap:.7rem;
+  height:calc(56px + env(safe-area-inset-top, 0px));
+  padding-top:env(safe-area-inset-top, 0px);
+  padding-left:max(1rem, env(safe-area-inset-left, 0px));
+  padding-right:max(1rem, env(safe-area-inset-right, 0px));
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:.7rem;
   background:var(--panel);flex-shrink:0;
 }
 .back-btn{
@@ -271,6 +286,8 @@ input:checked + .slider:before{transform:translateX(20px)}
 /* Call Overlays */
 .call-overlay{
   position:fixed;top:0;left:0;right:0;bottom:0;
+  padding-top:max(1.5rem, env(safe-area-inset-top, 0px));
+  padding-bottom:max(1.5rem, env(safe-area-inset-bottom, 0px));
   background:rgba(0,0,0,0.85);backdrop-filter:blur(10px);
   z-index:9999;display:none;flex-direction:column;
   align-items:center;justify-content:center;color:#fff;
@@ -374,7 +391,10 @@ input:checked + .slider:before{transform:translateX(20px)}
 /* Input Bar */
 .input-bar{
   border-top:1px solid var(--border);background:var(--panel);
-  padding:.75rem 1rem;padding-bottom:max(.75rem, env(safe-area-inset-bottom));
+  padding:.75rem 1rem;
+  padding-bottom:max(.75rem, calc(.5rem + env(safe-area-inset-bottom, 0px)));
+  padding-left:max(1rem, env(safe-area-inset-left, 0px));
+  padding-right:max(1rem, env(safe-area-inset-right, 0px));
   flex-shrink:0;
 }
 .img-preview-bar{
@@ -470,7 +490,12 @@ input:checked + .slider:before{transform:translateX(20px)}
 .mrow.selected .msg-checkbox::after { content: '✓'; color: #fff; font-size: 12px; font-weight: bold; }
 
 .selection-header {
-  display: none; align-items: center; padding: 0 1rem; height: 60px;
+  display: none; align-items: center;
+  padding: 0 1rem;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  height: calc(60px + env(safe-area-inset-top, 0px));
   background: var(--bg); border-bottom: 1px solid var(--border);
   position: absolute; top: 0; left: 0; right: 0; z-index: 10;
   justify-content: space-between;
