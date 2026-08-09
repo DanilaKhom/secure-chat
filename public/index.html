@@ -2416,6 +2416,11 @@ function connectSocket(){
       const el = msgsEl.querySelector(`.mrow[data-id="${id}"]`);
       if (el) el.remove();
     });
+    const remaining = msgsEl.querySelectorAll('.mrow');
+    if (remaining.length === 0 && msgsEmpty) {
+      msgsEmpty.style.display = 'flex';
+    }
+    if (activeTab === 'chats') loadRecent();
   });
 
   socket.on('message_sent_ack', (data) => {
