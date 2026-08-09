@@ -2887,6 +2887,7 @@ async function send(){
   }
 
   msgInput.value='';
+  msgInput.focus();
   clearSelectedImage();
 
   let peerKey;
@@ -2915,8 +2916,22 @@ async function send(){
   }
 }
 
-sendBtn.onclick=send;
-msgInput.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();send()}};
+// Keep keyboard active on touch devices when tapping the send button
+sendBtn.onpointerdown = (e) => {
+  e.preventDefault();
+};
+sendBtn.onclick = (e) => {
+  e.preventDefault();
+  send();
+  msgInput.focus();
+};
+msgInput.onkeydown = (e) => {
+  if(e.key==='Enter'){
+    e.preventDefault();
+    send();
+    msgInput.focus();
+  }
+};
 </script>
 </body>
 </html>
